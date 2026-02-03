@@ -64,27 +64,26 @@ def start_span(
         attrs.setdefault("span.kind", kind)
     input_payload = _normalize_text(input_value)
 
-    trace_stack = list(_TRACE_STACK.get())
-    parent = trace_stack[-1] if trace_stack else None
-
     span = None
     try:
-        if parent is None:
-            trace = tracer.trace(name=name, input=input_payload, metadata=attrs)
-            span = trace
-        else:
-            span = parent.span(name=name, input=input_payload, metadata=attrs)
+        # Use start_as_current_span for proper context tracking
+        cm = tracer.start_as_current_span(
+            name=name,
+            input=input_payload,
+            metadata=attrs,
+        )
+        span = cm.__enter__()
     except Exception:  # noqa: BLE001
         yield None
         return
 
-    trace_stack.append(span)
-    token = _TRACE_STACK.set(trace_stack)
     try:
         yield span
     finally:
-        _TRACE_STACK.reset(token)
-        _safe_end(span)
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def set_span_output(span: Any | None, output_value: Any) -> None:
@@ -158,5 +157,21 @@ def _safe_end(span: Any) -> None:
     try:
         if hasattr(span, "end"):
             span.end()
+    except Exception:  # noqa: BLE001
+        return
+
+
+def flush() -> None:
+    """Flush any pending traces to Langfuse.
+
+    Langfuse uses async ingestion by default. Call this before program
+    exit to ensure all traces are sent.
+    """
+    tracer = _TRACER
+    if tracer is None:
+        return
+    try:
+        if hasattr(tracer, "flush"):
+            tracer.flush()
     except Exception:  # noqa: BLE001
         return

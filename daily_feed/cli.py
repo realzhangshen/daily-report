@@ -15,6 +15,7 @@ from rich.console import Console
 
 from .config import load_config
 from .runner import run_pipeline
+from .langfuse_utils import flush
 
 try:
     from dotenv import load_dotenv
@@ -112,6 +113,9 @@ def run(
     # Run the pipeline
     output_path = run_pipeline(input, output, cfg, show_progress=progress, console=console)
     console.print(f"Report generated: {output_path}")
+
+    # Flush Langfuse traces before exit
+    flush()
 
 
 if __name__ == "__main__":
