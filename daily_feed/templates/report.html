@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title }}</title>
+  <style>
+    :root {
+      --bg: #f6f5f2;
+      --card: #ffffff;
+      --text: #1a1a1a;
+      --muted: #666;
+      --accent: #0f766e;
+      --border: #e4e4e4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Iowan Old Style", "Georgia", serif;
+      background: radial-gradient(circle at top, #ffffff 0%, #f6f5f2 40%, #efece6 100%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      padding: 2.5rem 1.5rem 1.5rem;
+      text-align: center;
+    }
+    header h1 { margin: 0; font-size: 2.2rem; }
+    header p { margin: 0.5rem 0 0; color: var(--muted); }
+    main {
+      max-width: 1000px;
+      margin: 0 auto 3rem;
+      padding: 0 1.5rem;
+    }
+    .group {
+      margin-bottom: 2.5rem;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
+    }
+    .group h2 {
+      margin-top: 0;
+      color: var(--accent);
+      font-size: 1.4rem;
+    }
+    .article {
+      padding: 1rem 0;
+      border-top: 1px dashed var(--border);
+    }
+    .article:first-of-type { border-top: none; }
+    .article h3 { margin: 0 0 0.4rem; font-size: 1.1rem; }
+    .meta { color: var(--muted); font-size: 0.9rem; }
+    .meta a { color: var(--accent); text-decoration: none; }
+    ul { margin: 0.6rem 0 0.6rem 1.1rem; }
+    .takeaway {
+      margin: 0.6rem 0 0;
+      padding: 0.6rem 0.8rem;
+      background: #f1f9f8;
+      border-left: 4px solid var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{ title }}</h1>
+    <p>{{ total }} items · Generated {{ generated_at }}</p>
+  </header>
+  <main>
+    {% for group, items in groups %}
+    <section class="group">
+      <h2>{{ group }}</h2>
+      {% for item in items %}
+      <article class="article">
+        <h3>{{ item.article.title }}</h3>
+        <div class="meta">
+          {{ item.article.site }}{% if item.article.author %} · {{ item.article.author }}{% endif %}
+          {% if item.article.time %} · {{ item.article.time }}{% endif %}
+          · <a href="{{ item.article.url }}" target="_blank" rel="noopener">Source</a>
+        </div>
+        {% if item.bullets %}
+        <ul>
+          {% for bullet in item.bullets %}
+          <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if item.takeaway %}
+        <div class="takeaway">{{ item.takeaway }}</div>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </main>
+</body>
+</html>
