@@ -1,3 +1,10 @@
+"""
+Google Gemini LLM provider implementation.
+
+This module integrates with Google's Generative Language API for
+article summarization and topic grouping.
+"""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +19,13 @@ from .base import Provider
 
 
 class GeminiProvider(Provider):
+    """Google Gemini API integration for summarization and grouping.
+
+    Uses the Gemini API via REST for:
+    1. Single article summarization (bullets + takeaway)
+    2. Topic grouping of multiple article summaries
+    """
+
     def __init__(
         self,
         cfg: ProviderConfig,
@@ -20,6 +34,18 @@ class GeminiProvider(Provider):
         log_cfg: LoggingConfig,
         llm_logger,
     ):
+        """Initialize the Gemini provider.
+
+        Args:
+            cfg: Provider configuration (model, base URL, etc.)
+            summary_cfg: Summarization settings (bullet count, max chars)
+            api_key: Google API key for authentication
+            log_cfg: Logging configuration for LLM response logging
+            llm_logger: Logger instance for LLM interactions
+
+        Raises:
+            ValueError: If api_key is None
+        """
         if not api_key:
             raise ValueError("Missing Google API key")
         self.cfg = cfg
@@ -29,6 +55,22 @@ class GeminiProvider(Provider):
         self.llm_logger = llm_logger
 
     def summarize_article(self, article: Article, text: str) -> ArticleSummary:
+        """Generate a summary for a single article using Gemini.
+
+        Sends the article title, metadata, and content to Gemini with a prompt
+        requesting JSON output with bullets and takeaway. Handles various
+        error cases gracefully.
+
+        Args:
+            article: The article to summarize (contains metadata)
+            text: The full text content of the article
+
+        Returns:
+            ArticleSummary with bullets, takeaway, and status. Status can be:
+            - "ok": Successful summarization
+            - "provider_error": HTTP/network error calling the API
+            - "parse_error": JSON parsing failed (fallback extraction attempted)
+        """
         prompt = _summary_prompt(article, text, self.summary_cfg)
         payload = {
             "contents": [
@@ -95,6 +137,18 @@ class GeminiProvider(Provider):
         )
 
     def group_topics(self, summaries: list[ArticleSummary]) -> dict[str, list[ArticleSummary]]:
+        """Group articles by topic using Gemini.
+
+        Sends all article summaries to Gemini and asks it to assign
+        a concise topic label to each. Returns articles grouped by topic.
+
+        Args:
+            summaries: List of ArticleSummary objects to group
+
+        Returns:
+            Dictionary mapping topic names to lists of summaries.
+            Returns empty dict if grouping fails.
+        """
         prompt = _group_prompt(summaries)
         payload = {
             "contents": [
@@ -119,6 +173,7 @@ class GeminiProvider(Provider):
             )
             return {}
 
+        # Match returned topics back to summaries by title
         grouped: dict[str, list[ArticleSummary]] = {}
         for item in obj.get("items", []):
             title = item.get("title")
@@ -133,6 +188,17 @@ class GeminiProvider(Provider):
         return grouped
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Make a POST request to the Gemini API.
+
+        Args:
+            payload: Request body as a dictionary
+
+        Returns:
+            Parsed JSON response from the API
+
+        Raises:
+            httpx.HTTPError: If the request fails
+        """
         url = f"{self.cfg.base_url}/v1beta/models/{self.cfg.model}:generateContent"
         params = {"key": self.api_key}
         with httpx.Client(timeout=30.0, trust_env=self.cfg.trust_env) as client:
@@ -148,6 +214,18 @@ class GeminiProvider(Provider):
         content: str,
         prompt: str,
     ) -> None:
+        """Log an LLM summarization response.
+
+        Applies redaction and truncation based on configuration,
+        then logs to the LLM-specific log file.
+
+        Args:
+            article: The article being summarized
+            event: Event type for logging
+            status: Status of the request (ok, provider_error, parse_error)
+            content: The LLM response content
+            prompt: The prompt sent to the LLM
+        """
         if self.llm_logger is None:
             return
         detail = self.log_cfg.llm_log_detail
@@ -171,6 +249,13 @@ class GeminiProvider(Provider):
         log_event(self.llm_logger, "LLM response", **payload)
 
     def _log_llm_group_response(self, content: str, status: str, prompt: str) -> None:
+        """Log an LLM topic grouping response.
+
+        Args:
+            content: The LLM response content
+            status: Status of the request (ok or error)
+            prompt: The prompt sent to the LLM
+        """
         if self.llm_logger is None:
             return
         redaction = self.log_cfg.llm_log_redaction
@@ -186,6 +271,17 @@ class GeminiProvider(Provider):
 
 
 def _extract_text(data: dict[str, Any]) -> str:
+    """Extract text content from Gemini API response.
+
+    Navigates the Gemini response structure to find the actual
+    generated text content.
+
+    Args:
+        data: Parsed JSON response from Gemini API
+
+    Returns:
+        The text content, or empty string if not found
+    """
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception:  # noqa: BLE001
@@ -193,6 +289,20 @@ def _extract_text(data: dict[str, Any]) -> str:
 
 
 def _parse_json_response(content: str) -> dict[str, Any]:
+    """Parse JSON from LLM response with fenced code block handling.
+
+    Gemini may return JSON wrapped in markdown code blocks. This
+    function handles both direct JSON and fenced formats.
+
+    Args:
+        content: The raw text content from the LLM response
+
+    Returns:
+        Parsed JSON as a dictionary
+
+    Raises:
+        json.JSONDecodeError: If JSON cannot be extracted or parsed
+    """
     if not content:
         raise json.JSONDecodeError("Empty content", content or "", 0)
     try:
@@ -203,6 +313,20 @@ def _parse_json_response(content: str) -> dict[str, Any]:
 
 
 def _extract_json_snippet(content: str) -> str:
+    """Extract JSON from text, handling fenced code blocks.
+
+    First tries to extract from a ```json...``` fenced block,
+    then falls back to finding the outermost { } braces.
+
+    Args:
+        content: Text potentially containing JSON
+
+    Returns:
+        Extracted JSON string
+
+    Raises:
+        json.JSONDecodeError: If no JSON-like content is found
+    """
     fence = _extract_fenced_json(content)
     if fence:
         return fence
@@ -214,6 +338,17 @@ def _extract_json_snippet(content: str) -> str:
 
 
 def _extract_fenced_json(content: str) -> str | None:
+    """Extract JSON from a markdown fenced code block.
+
+    Looks for ```json or ``` fences and returns the content
+    between them.
+
+    Args:
+        content: Text that may contain a fenced JSON block
+
+    Returns:
+        The extracted JSON string, or None if no fence found
+    """
     lines = content.splitlines()
     start_idx = None
     for idx, line in enumerate(lines):
@@ -230,6 +365,17 @@ def _extract_fenced_json(content: str) -> str | None:
 
 
 def _fallback_from_text(content: str) -> dict[str, Any]:
+    """Extract bullets/takeaway from plain text when JSON parsing fails.
+
+    Attempts to extract bullet points from markdown-style lists,
+    or falls back to splitting by sentences.
+
+    Args:
+        content: Plain text content from the LLM
+
+    Returns:
+        Dictionary with "bullets" (list of strings) and "takeaway"
+    """
     text = (content or "").strip()
     bullets: list[str] = []
     if text:
@@ -253,6 +399,19 @@ def _fallback_from_text(content: str) -> dict[str, Any]:
 
 
 def _summary_prompt(article: Article, text: str, cfg: SummaryConfig) -> str:
+    """Build the summarization prompt for the LLM.
+
+    Creates a prompt that instructs the LLM to output JSON with
+    bullet points and a takeaway, constrained by configuration.
+
+    Args:
+        article: The article to summarize (for metadata)
+        text: The article content to summarize
+        cfg: Summary configuration (bullet count, max chars)
+
+    Returns:
+        The complete prompt string to send to the LLM
+    """
     trimmed = text[: cfg.max_chars]
     return (
         "Summarize the article in English. Output strict JSON with keys: "
@@ -265,6 +424,17 @@ def _summary_prompt(article: Article, text: str, cfg: SummaryConfig) -> str:
 
 
 def _group_prompt(summaries: list[ArticleSummary]) -> str:
+    """Build the topic grouping prompt for the LLM.
+
+    Creates a prompt that instructs the LLM to assign concise
+    topic labels to each article based on title and takeaway.
+
+    Args:
+        summaries: List of article summaries to group
+
+    Returns:
+        The complete prompt string to send to the LLM
+    """
     lines = []
     for summary in summaries:
         lines.append(f"- {summary.article.title}: {summary.takeaway}")

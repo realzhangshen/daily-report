@@ -1,3 +1,13 @@
+"""
+Logging utilities for structured and pretty console output.
+
+This module provides:
+- Rich console output for terminal with color/formatting
+- JSONL file logging for structured data analysis
+- Separate LLM interaction logger for debugging prompts/responses
+- Text redaction and truncation utilities
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +26,18 @@ _URL_RE = re.compile(r"https?://\\S+")
 
 
 def setup_logging(cfg: LoggingConfig, run_output_dir: Path | None) -> logging.Logger:
+    """Set up the main application logger.
+
+    Creates a logger with Rich console output (if enabled) and
+    file logging in JSONL or plain text format (if enabled).
+
+    Args:
+        cfg: Logging configuration
+        run_output_dir: Directory for log file output
+
+    Returns:
+        Configured logger instance
+    """
     logger = logging.getLogger("daily_feed")
     logger.setLevel(_level_from_string(cfg.level))
     logger.handlers = []
@@ -39,6 +61,18 @@ def setup_logging(cfg: LoggingConfig, run_output_dir: Path | None) -> logging.Lo
 
 
 def setup_llm_logger(cfg: LoggingConfig, run_output_dir: Path | None) -> logging.Logger | None:
+    """Set up the LLM interaction logger.
+
+    Creates a separate logger for LLM prompts and responses, always
+    using JSONL format for structured analysis.
+
+    Args:
+        cfg: Logging configuration
+        run_output_dir: Directory for log file output
+
+    Returns:
+        Configured LLM logger, or None if disabled
+    """
     if not cfg.llm_log_enabled:
         return None
     if run_output_dir is None:
@@ -59,12 +93,31 @@ def setup_llm_logger(cfg: LoggingConfig, run_output_dir: Path | None) -> logging
 
 
 def log_event(logger: logging.Logger | None, message: str, **fields: Any) -> None:
+    """Log a structured event with additional fields.
+
+    Fields are passed as extra context and will be included in
+    the JSON log output.
+
+    Args:
+        logger: Logger instance (may be None)
+        message: Log message
+        **fields: Additional structured fields to include
+    """
     if logger is None:
         return
     logger.info(message, extra=fields)
 
 
 def redact_text(text: str, mode: str) -> str:
+    """Redact sensitive information from text based on mode.
+
+    Args:
+        text: The text to potentially redact
+        mode: Redaction mode ("none", "redact_content", "redact_urls_authors")
+
+    Returns:
+        Redacted text or empty string
+    """
     if mode == "none":
         return text
     if mode == "redact_content":
@@ -75,6 +128,15 @@ def redact_text(text: str, mode: str) -> str:
 
 
 def redact_value(value: str | None, mode: str) -> str | None:
+    """Redact a single value based on mode.
+
+    Args:
+        value: The value to potentially redact
+        mode: Redaction mode ("none", "redact_content", "redact_urls_authors")
+
+    Returns:
+        Redacted value, None, or "[REDACTED]"
+    """
     if value is None:
         return None
     if mode == "redact_urls_authors":
@@ -85,12 +147,27 @@ def redact_value(value: str | None, mode: str) -> str | None:
 
 
 def truncate_text(text: str, max_chars: int = 20000) -> str:
+    """Truncate text to maximum length with ellipsis indicator.
+
+    Args:
+        text: The text to truncate
+        max_chars: Maximum characters before truncation
+
+    Returns:
+        Original text or truncated version with "...(truncated)" suffix
+    """
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "...(truncated)"
 
 
 class JsonlFormatter(logging.Formatter):
+    """Custom formatter that outputs log records as JSONL.
+
+    Each log line is a separate JSON object with timestamp, level,
+    logger name, message, and any extra fields.
+    """
+
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -103,6 +180,17 @@ class JsonlFormatter(logging.Formatter):
 
 
 def _extract_extras(record: logging.LogRecord) -> dict[str, Any]:
+    """Extract extra fields from a log record.
+
+    Removes standard Python logging fields and returns any
+    custom fields that were added via the `extra` parameter.
+
+    Args:
+        record: The log record to extract from
+
+    Returns:
+        Dictionary of extra field names to values
+    """
     reserved = {
         "name",
         "msg",
@@ -135,10 +223,26 @@ def _extract_extras(record: logging.LogRecord) -> dict[str, Any]:
 
 
 def _build_file_formatter(fmt: str) -> logging.Formatter:
+    """Build a file formatter based on format type.
+
+    Args:
+        fmt: Format type ("jsonl" or "plain")
+
+    Returns:
+        Appropriate formatter instance
+    """
     if fmt == "jsonl":
         return JsonlFormatter()
     return logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 
 
 def _level_from_string(level: str) -> int:
+    """Convert logging level string to logging constant.
+
+    Args:
+        level: Level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+
+    Returns:
+        Logging level constant (e.g., logging.INFO)
+    """
     return getattr(logging, level.upper(), logging.INFO)

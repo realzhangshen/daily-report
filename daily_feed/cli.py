@@ -1,3 +1,10 @@
+"""
+Command-line interface for the Daily Feed Agent.
+
+Uses Typer to provide a CLI with options for all major configuration
+settings. Supports loading .env files for API key configuration.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -55,11 +62,34 @@ def run(
         help="Override provider API key (or set GOOGLE_API_KEY / .env).",
     ),
 ):
-    """Run the daily feed pipeline."""
+    """Run the daily feed pipeline.
+
+    Processes a markdown RSS export file, fetches article content,
+    generates AI summaries, groups by topic, and outputs an HTML report.
+
+    Args:
+        input: Path to input markdown file (Folo format)
+        output: Directory for output reports
+        config: Optional path to YAML config file
+        progress: Whether to show progress bar
+        run_folder_mode: Output folder naming strategy
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
+        log_format: Log file format (jsonl, plain)
+        log_file: Enable/disable file logging
+        cache_mode: Cache mode (run, shared)
+        cache_ttl_days: Cache entry time-to-live
+        cache_shared_dir: Custom shared cache directory
+        cache_index: Enable/disable cache index writing
+        api_key: Override LLM provider API key
+    """
+    # Load environment variables from .env if available
     if load_dotenv is not None:
         load_dotenv()
 
+    # Load base configuration
     cfg = load_config(str(config) if config else None)
+
+    # Override with CLI options
     if api_key:
         cfg.provider.api_key = api_key
     if run_folder_mode:
@@ -79,6 +109,7 @@ def run(
     if cache_index is not None:
         cfg.cache.write_index = cache_index
 
+    # Run the pipeline
     output_path = run_pipeline(input, output, cfg, show_progress=progress, console=console)
     console.print(f"Report generated: {output_path}")
 

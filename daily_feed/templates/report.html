@@ -1,3 +1,25 @@
+{#
+  Daily Feed Report Template
+
+  Jinja2 template for rendering article summaries as a polished HTML report.
+
+  Template Variables:
+    title: Report title
+    generated_at: ISO timestamp of report generation
+    total: Total number of articles
+    toc: Table of contents structure with nested entries
+    groups: List of article groups (by topic or site)
+
+  Each group contains:
+    id: URL-safe anchor ID
+    name: Display name (topic or site)
+    count: Number of articles
+    articles: List of article entries
+
+  Each article entry contains:
+    id: URL-safe anchor ID
+    summary: ArticleSummary object with article metadata and AI-generated content
+#}
 <!DOCTYPE html>
 <html lang="en">
 <head>
