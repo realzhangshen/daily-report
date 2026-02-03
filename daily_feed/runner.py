@@ -72,7 +72,13 @@ def run_pipeline(
                     )
                 )
                 continue
-            summaries.append(provider.summarize_article(item.article, item.text))
+            summary = provider.summarize_article(item.article, item.text)
+            if summary.status == "parse_error":
+                raw = summary.meta.get("raw_response")
+                if isinstance(raw, str) and raw.strip():
+                    response_cache = cache_path(cache_dir, item.article.url, "gemini.txt")
+                    response_cache.write_text(raw, encoding="utf-8")
+            summaries.append(summary)
 
         grouped = provider.group_topics(summaries)
         if not grouped:
@@ -137,7 +143,13 @@ def run_pipeline(
                 )
                 progress.advance(summarize_task, 1)
                 continue
-            summaries.append(provider.summarize_article(item.article, item.text))
+            summary = provider.summarize_article(item.article, item.text)
+            if summary.status == "parse_error":
+                raw = summary.meta.get("raw_response")
+                if isinstance(raw, str) and raw.strip():
+                    response_cache = cache_path(cache_dir, item.article.url, "gemini.txt")
+                    response_cache.write_text(raw, encoding="utf-8")
+            summaries.append(summary)
             progress.advance(summarize_task, 1)
         progress.advance(stage_task, 1)
 

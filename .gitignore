@@ -12,3 +12,4 @@ out/
 cache/
 *.egg-info/
 data/
+**.DS_Store

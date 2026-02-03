@@ -34,3 +34,6 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 daily_feed = ["templates/*.html"]
+
+[tool.uv]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
