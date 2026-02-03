@@ -40,6 +40,15 @@ logging:
   llm_log_detail: response_only
   llm_log_redaction: redact_urls_authors
   llm_log_file: llm.jsonl
+langfuse:
+  enabled: false
+  public_key:
+  secret_key:
+  host:
+  environment:
+  release:
+  redaction: redact_urls_authors
+  max_text_chars: 20000
 cache:
   mode: run
   shared_dir:

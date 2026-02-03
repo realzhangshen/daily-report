@@ -37,7 +37,7 @@ from .extractor import extract_text
 from .fetcher import cache_path, fetch_url, fetch_url_crawl4ai
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .parser import parse_folo_markdown
-from .phoenix_utils import set_span_output, setup_phoenix, start_span
+from .langfuse_utils import set_span_output, setup_langfuse, start_span
 from .providers.gemini import GeminiProvider
 from .renderer import render_html, render_markdown
 from .types import ArticleSummary, ExtractedArticle
@@ -99,7 +99,7 @@ def run_pipeline(
     )
     logger = setup_logging(cfg.logging, run_output_dir)
     llm_logger = setup_llm_logger(cfg.logging, run_output_dir)
-    setup_phoenix(cfg.phoenix)
+    setup_langfuse(cfg.langfuse)
 
     with start_span(
         "daily_feed.run",

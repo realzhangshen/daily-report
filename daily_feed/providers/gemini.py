@@ -14,6 +14,7 @@ import httpx
 
 from ..config import LoggingConfig, ProviderConfig, SummaryConfig
 from ..logging_utils import log_event, redact_text, redact_value, truncate_text
+from ..langfuse_utils import record_span_error, set_span_output, start_span
 from ..types import Article, ArticleSummary
 from .base import Provider
 
@@ -84,47 +85,61 @@ class GeminiProvider(Provider):
                 "maxOutputTokens": 1024,
             },
         }
-        try:
-            data = self._post(payload)
-            content = _extract_text(data)
-            obj = _parse_json_response(content)
-            self._log_llm_response(
-                article=article,
-                event="llm_response",
-                status="ok",
-                content=content,
-                prompt=prompt,
-            )
-        except httpx.HTTPError as exc:
-            self._log_llm_response(
-                article=article,
-                event="llm_response",
-                status="provider_error",
-                content=str(exc),
-                prompt=prompt,
-            )
-            return ArticleSummary(
-                article=article,
-                bullets=[f"Provider error: {type(exc).__name__}"],
-                takeaway=article.summary or "",
-                status="provider_error",
-            )
-        except json.JSONDecodeError:
-            self._log_llm_response(
-                article=article,
-                event="llm_response",
-                status="parse_error",
-                content=content,
-                prompt=prompt,
-            )
-            fallback = _fallback_from_text(content)
-            return ArticleSummary(
-                article=article,
-                bullets=fallback["bullets"],
-                takeaway=fallback["takeaway"],
-                status="parse_error",
-                meta={"raw_response": content},
-            )
+        with start_span(
+            "gemini.summarize",
+            kind="llm",
+            input_value=prompt,
+            attributes={
+                "llm.model": self.cfg.model,
+                "llm.provider": "gemini",
+                "article.title": article.title,
+                "article.site": article.site,
+            },
+        ) as span:
+            try:
+                data = self._post(payload)
+                content = _extract_text(data)
+                set_span_output(span, content)
+                obj = _parse_json_response(content)
+                self._log_llm_response(
+                    article=article,
+                    event="llm_response",
+                    status="ok",
+                    content=content,
+                    prompt=prompt,
+                )
+            except httpx.HTTPError as exc:
+                record_span_error(span, exc)
+                self._log_llm_response(
+                    article=article,
+                    event="llm_response",
+                    status="provider_error",
+                    content=str(exc),
+                    prompt=prompt,
+                )
+                return ArticleSummary(
+                    article=article,
+                    bullets=[f"Provider error: {type(exc).__name__}"],
+                    takeaway=article.summary or "",
+                    status="provider_error",
+                )
+            except json.JSONDecodeError as exc:
+                record_span_error(span, exc)
+                self._log_llm_response(
+                    article=article,
+                    event="llm_response",
+                    status="parse_error",
+                    content=content,
+                    prompt=prompt,
+                )
+                fallback = _fallback_from_text(content)
+                return ArticleSummary(
+                    article=article,
+                    bullets=fallback["bullets"],
+                    takeaway=fallback["takeaway"],
+                    status="parse_error",
+                    meta={"raw_response": content},
+                )
 
         bullets = obj.get("bullets") or []
         takeaway = obj.get("takeaway") or ""
@@ -162,16 +177,24 @@ class GeminiProvider(Provider):
                 "maxOutputTokens": 1024,
             },
         }
-        try:
-            data = self._post(payload)
-            content = _extract_text(data)
-            obj = json.loads(content)
-            self._log_llm_group_response(content, status="ok", prompt=prompt)
-        except (httpx.HTTPError, json.JSONDecodeError):
-            self._log_llm_group_response(
-                content if "content" in locals() else "", status="error", prompt=prompt
-            )
-            return {}
+        with start_span(
+            "gemini.group_topics",
+            kind="llm",
+            input_value=prompt,
+            attributes={"llm.model": self.cfg.model, "llm.provider": "gemini"},
+        ) as span:
+            try:
+                data = self._post(payload)
+                content = _extract_text(data)
+                set_span_output(span, content)
+                obj = json.loads(content)
+                self._log_llm_group_response(content, status="ok", prompt=prompt)
+            except (httpx.HTTPError, json.JSONDecodeError) as exc:
+                record_span_error(span, exc)
+                self._log_llm_group_response(
+                    content if "content" in locals() else "", status="error", prompt=prompt
+                )
+                return {}
 
         # Match returned topics back to summaries by title
         grouped: dict[str, list[ArticleSummary]] = {}

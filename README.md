@@ -92,4 +92,37 @@ cache:
   ttl_days: null
   write_index: true
   index_filename: index.jsonl
+langfuse:
+  enabled: false
+  public_key: null
+  secret_key: null
+  host: null
+  environment: null
+  release: null
+  redaction: redact_urls_authors
+  max_text_chars: 20000
+```
+
+## Langfuse Tracing (Prompt/Workflow Iteration)
+
+This project can emit traces/spans to Langfuse to help iterate on prompts
+and workflow steps. Enable tracing in config and set the appropriate Langfuse
+environment variables (or inline config).
+
+Example environment variables:
+
+```bash
+export LANGFUSE_PUBLIC_KEY="pk_..."
+export LANGFUSE_SECRET_KEY="sk_..."
+export LANGFUSE_HOST="https://cloud.langfuse.com"
+# export LANGFUSE_ENVIRONMENT="local"
+# export LANGFUSE_RELEASE="daily-feed"
+```
+
+Enable in config:
+
+```yaml
+langfuse:
+  enabled: true
+  environment: daily-feed
 ```
