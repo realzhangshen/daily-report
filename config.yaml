@@ -41,7 +41,7 @@ logging:
   llm_log_redaction: redact_urls_authors
   llm_log_file: llm.jsonl
 langfuse:
-  enabled: false
+  enabled: true
   # Keys from environment: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
   public_key: null
   secret_key: null

@@ -28,8 +28,8 @@ console = Console()
 @app.command()
 def run(
     input: Path = typer.Option(..., "--input", "-i", exists=True, readable=True),
-    output: Path = typer.Option(..., "--output", "-o"),
-    config: Path | None = typer.Option(None, "--config", "-c"),
+    output: Path = typer.Option(Path("out"), "--output", "-o"),
+    config: Path | None = typer.Option(Path("config.yaml"), "--config", "-c", exists=True),
     progress: bool = typer.Option(True, "--progress/--no-progress"),
     run_folder_mode: str | None = typer.Option(
         None,
