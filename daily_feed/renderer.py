@@ -61,7 +61,7 @@ def render_html(summaries: list[ArticleSummary], output_path: Path, title: str) 
             {
                 "id": group_id,
                 "name": group_name,
-                "items": enriched_items,
+                "articles": enriched_items,
                 "count": len(items),
             }
         )
@@ -75,9 +75,9 @@ def render_html(summaries: list[ArticleSummary], output_path: Path, title: str) 
                 "id": group["id"],
                 "name": group["name"],
                 "count": group["count"],
-                "items": [
+                "toc_items": [
                     {"id": item["id"], "title": item["summary"].article.title}
-                    for item in group["items"]
+                    for item in group["articles"]
                 ],
             }
             for group in groups

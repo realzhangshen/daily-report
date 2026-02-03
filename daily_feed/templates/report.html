@@ -138,7 +138,7 @@
             <span class="toc-count">{{ entry.count }}</span>
           </a>
           <ul>
-            {% for item in entry.items %}
+            {% for item in entry.toc_items %}
             <li>
               <a class="toc-article" href="#{{ item.id }}">
                 <span>{{ item.title }}</span>
@@ -154,7 +154,7 @@
       {% for group in groups %}
       <section class="group" id="{{ group.id }}">
         <h2>{{ group.name }}</h2>
-        {% for item in group.items %}
+        {% for item in group.articles %}
       <article class="article">
         <h3 id="{{ item.id }}">{{ item.summary.article.title }}</h3>
         <div class="meta">
