@@ -9,6 +9,15 @@ uv venv
 uv pip install -e .
 ```
 
+### Optional: Crawl4AI Web Fetch
+
+If you want JS-rendered fetching, install Crawl4AI:
+
+```bash
+pip install -U crawl4ai
+playwright install
+```
+
 ## Run
 
 ```bash
@@ -44,6 +53,9 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
+  backend: httpx  # httpx or crawl4ai
+  fallback_to_httpx: true
+  crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true

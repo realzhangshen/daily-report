@@ -6,6 +6,9 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
+  backend: httpx
+  fallback_to_httpx: true
+  crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true

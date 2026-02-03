@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
+import asyncio
 
 from rich.console import Console
 from rich.progress import (
@@ -16,11 +18,22 @@ from rich.progress import (
 from .config import AppConfig, get_api_key
 from .dedup import dedup_articles
 from .extractor import extract_text
-from .fetcher import cache_path, fetch_url
+from .fetcher import cache_path, fetch_url, fetch_url_crawl4ai
 from .parser import parse_folo_markdown
 from .providers.gemini import GeminiProvider
 from .renderer import render_html, render_markdown
 from .types import ArticleSummary, ExtractedArticle
+
+
+@dataclass
+class FetchStats:
+    total: int = 0
+    cache_hits: int = 0
+    crawl4ai_success: int = 0
+    crawl4ai_failed: int = 0
+    crawl4ai_fallback_used: int = 0
+    httpx_success: int = 0
+    httpx_failed: int = 0
 
 
 def run_pipeline(
@@ -42,7 +55,8 @@ def run_pipeline(
         if cfg.dedup.enabled:
             articles = dedup_articles(articles, cfg.dedup.title_similarity_threshold)
 
-        extracted = _fetch_and_extract(articles, cache_dir, cfg)
+        extracted, stats = _fetch_articles(articles, cache_dir, cfg)
+        _render_fetch_stats(stats, console or Console())
         provider = _build_provider(cfg)
 
         summaries: list[ArticleSummary] = []
@@ -102,44 +116,8 @@ def run_pipeline(
         progress.advance(stage_task, 1)
 
         fetch_task = progress.add_task("Fetch + Extract", total=len(articles))
-        extracted: list[ExtractedArticle] = []
-        for article in articles:
-            html_cache = cache_path(cache_dir, article.url, "html")
-            text_cache = cache_path(cache_dir, article.url, "txt")
-
-            if text_cache.exists():
-                text = text_cache.read_text(encoding="utf-8")
-                extracted.append(ExtractedArticle(article=article, text=text))
-                progress.advance(fetch_task, 1)
-                continue
-
-            if html_cache.exists():
-                html = html_cache.read_text(encoding="utf-8", errors="ignore")
-            else:
-                result = fetch_url(
-                    article.url,
-                    timeout=cfg.fetch.timeout_seconds,
-                    retries=cfg.fetch.retries,
-                    user_agent=cfg.fetch.user_agent,
-                    trust_env=cfg.fetch.trust_env,
-                )
-                if result.text:
-                    html = result.text
-                    html_cache.write_text(html, encoding="utf-8")
-                else:
-                    extracted.append(
-                        ExtractedArticle(article=article, text=None, error=result.error)
-                    )
-                    progress.advance(fetch_task, 1)
-                    continue
-
-            text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
-            if text and _is_placeholder_text(text):
-                text = None
-            if text:
-                text_cache.write_text(text, encoding="utf-8")
-            extracted.append(ExtractedArticle(article=article, text=text, error=None))
-            progress.advance(fetch_task, 1)
+        extracted, stats = _fetch_articles(articles, cache_dir, cfg, progress, fetch_task)
+        _render_fetch_stats(stats, console)
         progress.advance(stage_task, 1)
 
         provider = _build_provider(cfg)
@@ -187,41 +165,168 @@ def run_pipeline(
 
 
 def _fetch_and_extract(articles, cache_dir: Path, cfg: AppConfig):
+    extracted, _stats = _fetch_articles(articles, cache_dir, cfg)
+    return extracted
+
+
+def _fetch_articles(
+    articles,
+    cache_dir: Path,
+    cfg: AppConfig,
+    progress: Progress | None = None,
+    fetch_task: int | None = None,
+) -> tuple[list[ExtractedArticle], FetchStats]:
+    stats = FetchStats(total=len(articles))
+    backend = (cfg.fetch.backend or "httpx").lower()
+    if backend == "crawl4ai":
+        extracted = _fetch_and_extract_crawl4ai(
+            articles, cache_dir, cfg, stats, progress, fetch_task
+        )
+        return extracted, stats
+    extracted = _fetch_and_extract_httpx(articles, cache_dir, cfg, stats, progress, fetch_task)
+    return extracted, stats
+
+
+def _fetch_and_extract_httpx(
+    articles,
+    cache_dir: Path,
+    cfg: AppConfig,
+    stats: FetchStats,
+    progress: Progress | None = None,
+    fetch_task: int | None = None,
+) -> list[ExtractedArticle]:
     extracted: list[ExtractedArticle] = []
     for article in articles:
-        html_cache = cache_path(cache_dir, article.url, "html")
-        text_cache = cache_path(cache_dir, article.url, "txt")
+        extracted.append(_fetch_single_httpx(article, cache_dir, cfg, stats))
+        if progress and fetch_task is not None:
+            progress.advance(fetch_task, 1)
+    return extracted
 
+
+def _fetch_single_httpx(
+    article, cache_dir: Path, cfg: AppConfig, stats: FetchStats
+) -> ExtractedArticle:
+    html_cache = cache_path(cache_dir, article.url, "html")
+    text_cache = cache_path(cache_dir, article.url, "txt")
+
+    if text_cache.exists():
+        text = text_cache.read_text(encoding="utf-8")
+        stats.cache_hits += 1
+        return ExtractedArticle(article=article, text=text)
+
+    if html_cache.exists():
+        html = html_cache.read_text(encoding="utf-8", errors="ignore")
+    else:
+        result = fetch_url(
+            article.url,
+            timeout=cfg.fetch.timeout_seconds,
+            retries=cfg.fetch.retries,
+            user_agent=cfg.fetch.user_agent,
+            trust_env=cfg.fetch.trust_env,
+        )
+        if result.text:
+            html = result.text
+            html_cache.write_text(html, encoding="utf-8")
+        else:
+            stats.httpx_failed += 1
+            return ExtractedArticle(article=article, text=None, error=result.error)
+
+    text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
+    if text and _is_placeholder_text(text):
+        text = None
+    if text:
+        text_cache.write_text(text, encoding="utf-8")
+        stats.httpx_success += 1
+        return ExtractedArticle(article=article, text=text, error=None)
+    stats.httpx_failed += 1
+    return ExtractedArticle(article=article, text=None, error="Empty extraction result")
+
+
+def _fetch_and_extract_crawl4ai(
+    articles,
+    cache_dir: Path,
+    cfg: AppConfig,
+    stats: FetchStats,
+    progress: Progress | None = None,
+    fetch_task: int | None = None,
+) -> list[ExtractedArticle]:
+    return asyncio.run(
+        _fetch_and_extract_crawl4ai_async(articles, cache_dir, cfg, stats, progress, fetch_task)
+    )
+
+
+async def _fetch_and_extract_crawl4ai_async(
+    articles,
+    cache_dir: Path,
+    cfg: AppConfig,
+    stats: FetchStats,
+    progress: Progress | None = None,
+    fetch_task: int | None = None,
+) -> list[ExtractedArticle]:
+    semaphore = asyncio.Semaphore(max(1, int(cfg.fetch.crawl4ai_concurrency or 1)))
+    progress_lock = asyncio.Lock()
+
+    async def _advance_progress() -> None:
+        if progress and fetch_task is not None:
+            async with progress_lock:
+                progress.advance(fetch_task, 1)
+
+    async def _fetch_single(article) -> ExtractedArticle:
+        text_cache = cache_path(cache_dir, article.url, "txt")
         if text_cache.exists():
             text = text_cache.read_text(encoding="utf-8")
-            extracted.append(ExtractedArticle(article=article, text=text))
-            continue
+            stats.cache_hits += 1
+            await _advance_progress()
+            return ExtractedArticle(article=article, text=text)
 
-        if html_cache.exists():
-            html = html_cache.read_text(encoding="utf-8", errors="ignore")
-        else:
-            result = fetch_url(
+        async with semaphore:
+            result = await fetch_url_crawl4ai(
                 article.url,
                 timeout=cfg.fetch.timeout_seconds,
                 retries=cfg.fetch.retries,
-                user_agent=cfg.fetch.user_agent,
-                trust_env=cfg.fetch.trust_env,
             )
-            if result.text:
-                html = result.text
-                html_cache.write_text(html, encoding="utf-8")
-            else:
-                extracted.append(ExtractedArticle(article=article, text=None, error=result.error))
-                continue
 
-        text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
+        text = result.text
         if text and _is_placeholder_text(text):
             text = None
+
         if text:
             text_cache.write_text(text, encoding="utf-8")
-        extracted.append(ExtractedArticle(article=article, text=text, error=None))
+            stats.crawl4ai_success += 1
+            await _advance_progress()
+            return ExtractedArticle(article=article, text=text, error=None)
 
-    return extracted
+        stats.crawl4ai_failed += 1
+        if cfg.fetch.fallback_to_httpx:
+            stats.crawl4ai_fallback_used += 1
+            extracted = await asyncio.to_thread(_fetch_single_httpx, article, cache_dir, cfg, stats)
+            await _advance_progress()
+            return extracted
+
+        await _advance_progress()
+        return ExtractedArticle(article=article, text=None, error=result.error)
+
+    tasks = [asyncio.create_task(_fetch_single(article)) for article in articles]
+    return await asyncio.gather(*tasks)
+
+
+def _render_fetch_stats(stats: FetchStats, console: Console) -> None:
+    failed = stats.crawl4ai_failed + stats.httpx_failed
+    success = stats.crawl4ai_success + stats.httpx_success
+    console.print(
+        "[bold]Fetch summary[/bold]: "
+        f"total={stats.total}, success={success}, failed={failed}, cache_hits={stats.cache_hits}"
+    )
+    if stats.crawl4ai_success or stats.crawl4ai_failed:
+        console.print(
+            "[bold]Crawl4AI[/bold]: "
+            f"success={stats.crawl4ai_success}, failed={stats.crawl4ai_failed}, "
+            f"fallback_used={stats.crawl4ai_fallback_used}"
+        )
+    if stats.httpx_success or stats.httpx_failed:
+        console.print(
+            f"[bold]httpx[/bold]: success={stats.httpx_success}, failed={stats.httpx_failed}"
+        )
 
 
 def _is_placeholder_text(text: str) -> bool:

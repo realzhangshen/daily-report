@@ -9,6 +9,9 @@ import yaml
 
 @dataclass
 class FetchConfig:
+    backend: str = "httpx"
+    fallback_to_httpx: bool = True
+    crawl4ai_concurrency: int = 4
     timeout_seconds: float = 20.0
     retries: int = 2
     trust_env: bool = True
@@ -108,6 +111,9 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "trust_env": cfg.provider.trust_env,
         },
         "fetch": {
+            "backend": cfg.fetch.backend,
+            "fallback_to_httpx": cfg.fetch.fallback_to_httpx,
+            "crawl4ai_concurrency": cfg.fetch.crawl4ai_concurrency,
             "timeout_seconds": cfg.fetch.timeout_seconds,
             "retries": cfg.fetch.retries,
             "trust_env": cfg.fetch.trust_env,
