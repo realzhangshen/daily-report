@@ -32,10 +32,17 @@ class GeminiProvider(Provider):
                 "maxOutputTokens": 1024,
             },
         }
-        data = self._post(payload)
-        content = _extract_text(data)
         try:
+            data = self._post(payload)
+            content = _extract_text(data)
             obj = json.loads(content)
+        except httpx.HTTPError as exc:
+            return ArticleSummary(
+                article=article,
+                bullets=[f"Provider error: {type(exc).__name__}"],
+                takeaway=article.summary or "",
+                status="provider_error",
+            )
         except json.JSONDecodeError:
             return ArticleSummary(
                 article=article,
@@ -68,11 +75,11 @@ class GeminiProvider(Provider):
                 "maxOutputTokens": 1024,
             },
         }
-        data = self._post(payload)
-        content = _extract_text(data)
         try:
+            data = self._post(payload)
+            content = _extract_text(data)
             obj = json.loads(content)
-        except json.JSONDecodeError:
+        except (httpx.HTTPError, json.JSONDecodeError):
             return {}
 
         grouped: dict[str, list[ArticleSummary]] = {}
@@ -91,7 +98,7 @@ class GeminiProvider(Provider):
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.cfg.base_url}/v1beta/models/{self.cfg.model}:generateContent"
         params = {"key": self.api_key}
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0, trust_env=self.cfg.trust_env) as client:
             resp = client.post(url, params=params, json=payload)
             resp.raise_for_status()
             return resp.json()

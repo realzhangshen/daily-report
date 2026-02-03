@@ -10,7 +10,7 @@ authors = [{ name = "Daily Feed" }]
 dependencies = [
   "typer>=0.12.0",
   "rich>=13.0.0",
-  "httpx>=0.26.0",
+  "httpx[socks]>=0.26.0",
   "pyyaml>=6.0.0",
   "trafilatura>=1.6.0",
   "readability-lxml>=0.8.1",

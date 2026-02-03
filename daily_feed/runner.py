@@ -81,6 +81,7 @@ def _fetch_and_extract(articles, cache_dir: Path, cfg: AppConfig):
                 timeout=cfg.fetch.timeout_seconds,
                 retries=cfg.fetch.retries,
                 user_agent=cfg.fetch.user_agent,
+                trust_env=cfg.fetch.trust_env,
             )
             if result.text:
                 html = result.text
@@ -90,11 +91,22 @@ def _fetch_and_extract(articles, cache_dir: Path, cfg: AppConfig):
                 continue
 
         text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
+        if text and _is_placeholder_text(text):
+            text = None
         if text:
             text_cache.write_text(text, encoding="utf-8")
         extracted.append(ExtractedArticle(article=article, text=text, error=None))
 
     return extracted
+
+
+def _is_placeholder_text(text: str) -> bool:
+    lowered = text.lower()
+    if "javascript is disabled" in lowered or "please enable javascript" in lowered:
+        return True
+    if "enable javascript to continue" in lowered:
+        return True
+    return len(text.strip()) < 200
 
 
 def _build_provider(cfg: AppConfig):

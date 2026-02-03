@@ -11,6 +11,7 @@ import yaml
 class FetchConfig:
     timeout_seconds: float = 20.0
     retries: int = 2
+    trust_env: bool = True
     user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -52,10 +53,11 @@ class OutputConfig:
 @dataclass
 class ProviderConfig:
     name: str = "gemini"
-    model: str = "gemini-3"
+    model: str = "gemini-3-flash-preview"
     google_api_key_env: str = "GOOGLE_API_KEY"
     base_url: str = "https://generativelanguage.googleapis.com"
     api_key: str | None = None
+    trust_env: bool = True
 
 
 @dataclass
@@ -102,10 +104,12 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "google_api_key_env": cfg.provider.google_api_key_env,
             "base_url": cfg.provider.base_url,
             "api_key": cfg.provider.api_key,
+            "trust_env": cfg.provider.trust_env,
         },
         "fetch": {
             "timeout_seconds": cfg.fetch.timeout_seconds,
             "retries": cfg.fetch.retries,
+            "trust_env": cfg.fetch.trust_env,
             "user_agent": cfg.fetch.user_agent,
         },
         "extract": {

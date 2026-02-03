@@ -16,13 +16,24 @@ class FetchResult:
     error: str | None
 
 
-def fetch_url(url: str, timeout: float, retries: int, user_agent: str) -> FetchResult:
+def fetch_url(
+    url: str,
+    timeout: float,
+    retries: int,
+    user_agent: str,
+    trust_env: bool,
+) -> FetchResult:
     headers = {"User-Agent": user_agent}
     last_error: str | None = None
 
     for attempt in range(retries + 1):
         try:
-            with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=timeout,
+                headers=headers,
+                follow_redirects=True,
+                trust_env=trust_env,
+            ) as client:
                 resp = client.get(url)
                 return FetchResult(url=url, status_code=resp.status_code, text=resp.text, error=None)
         except Exception as exc:  # noqa: BLE001

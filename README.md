@@ -23,13 +23,15 @@ daily-feed run --input data/folo-export-2026-02-03.md --output out --config conf
 ```yaml
 provider:
   name: gemini
-  model: gemini-3
+  model: gemini-3-flash-preview
   google_api_key_env: GOOGLE_API_KEY
   base_url: https://generativelanguage.googleapis.com
   # api_key: ""  # optional inline override
+  trust_env: true
 fetch:
   timeout_seconds: 20
   retries: 2
+  trust_env: true
   user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
 extract:
   primary: trafilatura
