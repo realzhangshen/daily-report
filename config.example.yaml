@@ -26,3 +26,4 @@ grouping:
 output:
   format: html
   include_markdown: false
+  run_folder_mode: input

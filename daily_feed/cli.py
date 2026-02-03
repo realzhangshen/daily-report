@@ -23,6 +23,12 @@ def run(
     input: Path = typer.Option(..., "--input", "-i", exists=True, readable=True),
     output: Path = typer.Option(..., "--output", "-o"),
     config: Path | None = typer.Option(None, "--config", "-c"),
+    progress: bool = typer.Option(True, "--progress/--no-progress"),
+    run_folder_mode: str | None = typer.Option(
+        None,
+        "--run-folder-mode",
+        help="Output subfolder mode: input, timestamp, or input_timestamp.",
+    ),
     api_key: str | None = typer.Option(
         None,
         "--api-key",
@@ -37,8 +43,10 @@ def run(
     cfg = load_config(str(config) if config else None)
     if api_key:
         cfg.provider.api_key = api_key
+    if run_folder_mode:
+        cfg.output.run_folder_mode = run_folder_mode
 
-    output_path = run_pipeline(input, output, cfg)
+    output_path = run_pipeline(input, output, cfg, show_progress=progress, console=console)
     console.print(f"Report generated: {output_path}")
 
 

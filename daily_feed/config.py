@@ -48,6 +48,7 @@ class GroupingConfig:
 class OutputConfig:
     format: str = "html"
     include_markdown: bool = False
+    run_folder_mode: str = "input"
 
 
 @dataclass
@@ -132,6 +133,7 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
         "output": {
             "format": cfg.output.format,
             "include_markdown": cfg.output.include_markdown,
+            "run_folder_mode": cfg.output.run_folder_mode,
         },
     }
 

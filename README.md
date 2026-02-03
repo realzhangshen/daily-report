@@ -18,6 +18,21 @@ cp .env.example .env
 daily-feed run --input data/folo-export-2026-02-03.md --output out --config config.example.yaml
 ```
 
+Output will be written to a subfolder under `out/` named after the input file stem, for example:
+
+```text
+out/folo-export-2026-02-03/report.html
+out/folo-export-2026-02-03/cache/
+```
+
+You can change the subfolder strategy with `--run-folder-mode` or config `output.run_folder_mode`:
+
+```text
+input            -> out/<input-stem>/
+timestamp        -> out/YYYYMMDD-HHMMSS-<input-stem>/
+input_timestamp  -> out/<input-stem>-YYYYMMDD-HHMMSS/
+```
+
 ## Config
 
 ```yaml

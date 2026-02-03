@@ -28,9 +28,61 @@
     header h1 { margin: 0; font-size: 2.2rem; }
     header p { margin: 0.5rem 0 0; color: var(--muted); }
     main {
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 0 auto 3rem;
       padding: 0 1.5rem;
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    nav.toc {
+      position: sticky;
+      top: 1.5rem;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
+    }
+    nav.toc h2 {
+      margin: 0 0 0.6rem;
+      font-size: 1rem;
+      color: var(--accent);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    nav.toc ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    nav.toc ul ul {
+      margin: 0.35rem 0 0.4rem 0.75rem;
+      padding-left: 0.6rem;
+      border-left: 1px dashed var(--border);
+    }
+    nav.toc li {
+      margin: 0.35rem 0;
+      font-size: 0.95rem;
+    }
+    nav.toc a {
+      color: var(--text);
+      text-decoration: none;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.6rem;
+    }
+    nav.toc a:hover {
+      color: var(--accent);
+    }
+    nav.toc a.toc-article {
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .toc-count {
+      color: var(--muted);
+      font-size: 0.85rem;
     }
     .group {
       margin-bottom: 2.5rem;
@@ -60,6 +112,14 @@
       background: #f1f9f8;
       border-left: 4px solid var(--accent);
     }
+    @media (max-width: 900px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+      nav.toc {
+        position: static;
+      }
+    }
   </style>
 </head>
 <body>
@@ -68,31 +128,55 @@
     <p>{{ total }} items · Generated {{ generated_at }}</p>
   </header>
   <main>
-    {% for group, items in groups %}
-    <section class="group">
-      <h2>{{ group }}</h2>
-      {% for item in items %}
+    <nav class="toc">
+      <h2>Contents</h2>
+      <ul>
+        {% for entry in toc %}
+        <li>
+          <a href="#{{ entry.id }}">
+            <span>{{ entry.name }}</span>
+            <span class="toc-count">{{ entry.count }}</span>
+          </a>
+          <ul>
+            {% for item in entry.items %}
+            <li>
+              <a class="toc-article" href="#{{ item.id }}">
+                <span>{{ item.title }}</span>
+              </a>
+            </li>
+            {% endfor %}
+          </ul>
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+    <div>
+      {% for group in groups %}
+      <section class="group" id="{{ group.id }}">
+        <h2>{{ group.name }}</h2>
+        {% for item in group.items %}
       <article class="article">
-        <h3>{{ item.article.title }}</h3>
+        <h3 id="{{ item.id }}">{{ item.summary.article.title }}</h3>
         <div class="meta">
-          {{ item.article.site }}{% if item.article.author %} · {{ item.article.author }}{% endif %}
-          {% if item.article.time %} · {{ item.article.time }}{% endif %}
-          · <a href="{{ item.article.url }}" target="_blank" rel="noopener">Source</a>
+          {{ item.summary.article.site }}{% if item.summary.article.author %} · {{ item.summary.article.author }}{% endif %}
+          {% if item.summary.article.time %} · {{ item.summary.article.time }}{% endif %}
+          · <a href="{{ item.summary.article.url }}" target="_blank" rel="noopener">Source</a>
         </div>
-        {% if item.bullets %}
+        {% if item.summary.bullets %}
         <ul>
-          {% for bullet in item.bullets %}
+          {% for bullet in item.summary.bullets %}
           <li>{{ bullet }}</li>
           {% endfor %}
         </ul>
         {% endif %}
-        {% if item.takeaway %}
-        <div class="takeaway">{{ item.takeaway }}</div>
+        {% if item.summary.takeaway %}
+        <div class="takeaway">{{ item.summary.takeaway }}</div>
         {% endif %}
       </article>
+        {% endfor %}
+      </section>
       {% endfor %}
-    </section>
-    {% endfor %}
+    </div>
   </main>
 </body>
 </html>
