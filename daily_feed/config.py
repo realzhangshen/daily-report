@@ -55,6 +55,28 @@ class OutputConfig:
 
 
 @dataclass
+class LoggingConfig:
+    level: str = "INFO"
+    console: bool = True
+    file: bool = True
+    format: str = "jsonl"
+    filename: str = "run.jsonl"
+    llm_log_enabled: bool = True
+    llm_log_detail: str = "response_only"
+    llm_log_redaction: str = "redact_urls_authors"
+    llm_log_file: str = "llm.jsonl"
+
+
+@dataclass
+class CacheConfig:
+    mode: str = "run"
+    shared_dir: str | None = None
+    ttl_days: int | None = None
+    write_index: bool = True
+    index_filename: str = "index.jsonl"
+
+
+@dataclass
 class ProviderConfig:
     name: str = "gemini"
     model: str = "gemini-3-flash-preview"
@@ -73,6 +95,8 @@ class AppConfig:
     summary: SummaryConfig = field(default_factory=SummaryConfig)
     grouping: GroupingConfig = field(default_factory=GroupingConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
 
 
 DEFAULT_CONFIG = AppConfig()
@@ -141,6 +165,24 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "include_markdown": cfg.output.include_markdown,
             "run_folder_mode": cfg.output.run_folder_mode,
         },
+        "logging": {
+            "level": cfg.logging.level,
+            "console": cfg.logging.console,
+            "file": cfg.logging.file,
+            "format": cfg.logging.format,
+            "filename": cfg.logging.filename,
+            "llm_log_enabled": cfg.logging.llm_log_enabled,
+            "llm_log_detail": cfg.logging.llm_log_detail,
+            "llm_log_redaction": cfg.logging.llm_log_redaction,
+            "llm_log_file": cfg.logging.llm_log_file,
+        },
+        "cache": {
+            "mode": cfg.cache.mode,
+            "shared_dir": cfg.cache.shared_dir,
+            "ttl_days": cfg.cache.ttl_days,
+            "write_index": cfg.cache.write_index,
+            "index_filename": cfg.cache.index_filename,
+        },
     }
 
 
@@ -153,6 +195,8 @@ def _fromdict(data: dict[str, Any]) -> AppConfig:
         summary=SummaryConfig(**data["summary"]),
         grouping=GroupingConfig(**data["grouping"]),
         output=OutputConfig(**data["output"]),
+        logging=LoggingConfig(**data["logging"]),
+        cache=CacheConfig(**data["cache"]),
     )
 
 

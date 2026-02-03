@@ -76,4 +76,20 @@ grouping:
 output:
   format: html
   include_markdown: false
+logging:
+  level: INFO
+  console: true
+  file: true
+  format: jsonl
+  filename: run.jsonl
+  llm_log_enabled: true
+  llm_log_detail: response_only
+  llm_log_redaction: redact_urls_authors
+  llm_log_file: llm.jsonl
+cache:
+  mode: run
+  shared_dir: null
+  ttl_days: null
+  write_index: true
+  index_filename: index.jsonl
 ```

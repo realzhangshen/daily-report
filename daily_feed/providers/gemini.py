@@ -5,18 +5,28 @@ from typing import Any
 
 import httpx
 
-from ..config import ProviderConfig, SummaryConfig
+from ..config import LoggingConfig, ProviderConfig, SummaryConfig
+from ..logging_utils import log_event, redact_text, redact_value, truncate_text
 from ..types import Article, ArticleSummary
 from .base import Provider
 
 
 class GeminiProvider(Provider):
-    def __init__(self, cfg: ProviderConfig, summary_cfg: SummaryConfig, api_key: str | None):
+    def __init__(
+        self,
+        cfg: ProviderConfig,
+        summary_cfg: SummaryConfig,
+        api_key: str | None,
+        log_cfg: LoggingConfig,
+        llm_logger,
+    ):
         if not api_key:
             raise ValueError("Missing Google API key")
         self.cfg = cfg
         self.summary_cfg = summary_cfg
         self.api_key = api_key
+        self.log_cfg = log_cfg
+        self.llm_logger = llm_logger
 
     def summarize_article(self, article: Article, text: str) -> ArticleSummary:
         prompt = _summary_prompt(article, text, self.summary_cfg)
@@ -36,7 +46,21 @@ class GeminiProvider(Provider):
             data = self._post(payload)
             content = _extract_text(data)
             obj = _parse_json_response(content)
+            self._log_llm_response(
+                article=article,
+                event="llm_response",
+                status="ok",
+                content=content,
+                prompt=prompt,
+            )
         except httpx.HTTPError as exc:
+            self._log_llm_response(
+                article=article,
+                event="llm_response",
+                status="provider_error",
+                content=str(exc),
+                prompt=prompt,
+            )
             return ArticleSummary(
                 article=article,
                 bullets=[f"Provider error: {type(exc).__name__}"],
@@ -44,6 +68,13 @@ class GeminiProvider(Provider):
                 status="provider_error",
             )
         except json.JSONDecodeError:
+            self._log_llm_response(
+                article=article,
+                event="llm_response",
+                status="parse_error",
+                content=content,
+                prompt=prompt,
+            )
             fallback = _fallback_from_text(content)
             return ArticleSummary(
                 article=article,
@@ -81,7 +112,11 @@ class GeminiProvider(Provider):
             data = self._post(payload)
             content = _extract_text(data)
             obj = json.loads(content)
+            self._log_llm_group_response(content, status="ok", prompt=prompt)
         except (httpx.HTTPError, json.JSONDecodeError):
+            self._log_llm_group_response(
+                content if "content" in locals() else "", status="error", prompt=prompt
+            )
             return {}
 
         grouped: dict[str, list[ArticleSummary]] = {}
@@ -104,6 +139,50 @@ class GeminiProvider(Provider):
             resp = client.post(url, params=params, json=payload)
             resp.raise_for_status()
             return resp.json()
+
+    def _log_llm_response(
+        self,
+        article: Article,
+        event: str,
+        status: str,
+        content: str,
+        prompt: str,
+    ) -> None:
+        if self.llm_logger is None:
+            return
+        detail = self.log_cfg.llm_log_detail
+        redaction = self.log_cfg.llm_log_redaction
+        payload = {
+            "event": event,
+            "status": status,
+            "model": self.cfg.model,
+            "article_title": article.title,
+            "article_site": article.site,
+            "article_url": redact_value(article.url, redaction),
+            "author": redact_value(article.author, redaction),
+        }
+        if detail == "summary_only":
+            payload["raw_response"] = ""
+        elif detail == "prompt_response":
+            payload["raw_prompt"] = truncate_text(redact_text(prompt, redaction))
+            payload["raw_response"] = truncate_text(redact_text(content, redaction))
+        else:
+            payload["raw_response"] = truncate_text(redact_text(content, redaction))
+        log_event(self.llm_logger, "LLM response", **payload)
+
+    def _log_llm_group_response(self, content: str, status: str, prompt: str) -> None:
+        if self.llm_logger is None:
+            return
+        redaction = self.log_cfg.llm_log_redaction
+        payload = {
+            "event": "llm_group_response",
+            "status": status,
+            "model": self.cfg.model,
+            "raw_response": truncate_text(redact_text(content or "", redaction)),
+        }
+        if self.log_cfg.llm_log_detail == "prompt_response":
+            payload["raw_prompt"] = truncate_text(redact_text(prompt, redaction))
+        log_event(self.llm_logger, "LLM group response", **payload)
 
 
 def _extract_text(data: dict[str, Any]) -> str:
