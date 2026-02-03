@@ -1,0 +1,58 @@
+provider:
+  name: gemini
+  model: gemini-3-flash-preview
+  google_api_key_env: GOOGLE_API_KEY
+  base_url: https://generativelanguage.googleapis.com
+  # api_key: ""  # optional inline override
+  trust_env: true
+fetch:
+  backend: httpx
+  fallback_to_httpx: true
+  crawl4ai_concurrency: 4
+  timeout_seconds: 20
+  retries: 2
+  trust_env: true
+  user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+extract:
+  primary: trafilatura
+  fallback: [readability, bs4]
+dedup:
+  enabled: true
+  title_similarity_threshold: 92
+summary:
+  bullets_min: 3
+  bullets_max: 6
+  max_chars: 12000
+grouping:
+  method: provider
+  fallback: site
+output:
+  format: html
+  include_markdown: false
+  run_folder_mode: input
+logging:
+  level: INFO
+  console: true
+  file: true
+  format: jsonl
+  filename: run.jsonl
+  llm_log_enabled: true
+  llm_log_detail: response_only
+  llm_log_redaction: redact_urls_authors
+  llm_log_file: llm.jsonl
+langfuse:
+  enabled: false
+  # Keys from environment: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+  public_key: null
+  secret_key: null
+  host: http://localhost:3000
+  environment: development
+  release: v0.1.0
+  redaction: redact_urls_authors
+  max_text_chars: 20000
+cache:
+  mode: run
+  shared_dir:
+  ttl_days:
+  write_index: true
+  index_filename: index.jsonl

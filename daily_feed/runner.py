@@ -348,14 +348,6 @@ def _fetch_articles(
     Returns:
         Tuple of (extracted articles, fetch statistics)
     """
-    articles,
-    cache_dir: Path,
-    cfg: AppConfig,
-    cache_index: CacheIndex | None,
-    logger,
-    progress: Progress | None = None,
-    fetch_task: int | None = None,
-) -> tuple[list[ExtractedArticle], FetchStats]:
     stats = FetchStats(total=len(articles))
     backend = (cfg.fetch.backend or "httpx").lower()
     if backend == "crawl4ai":
@@ -397,15 +389,6 @@ def _fetch_and_extract_httpx(
     Returns:
         List of ExtractedArticle objects
     """
-    articles,
-    cache_dir: Path,
-    cfg: AppConfig,
-    stats: FetchStats,
-    cache_index: CacheIndex | None,
-    logger,
-    progress: Progress | None = None,
-    fetch_task: int | None = None,
-) -> list[ExtractedArticle]:
     extracted: list[ExtractedArticle] = []
     for article in articles:
         extracted.append(_fetch_single_httpx(article, cache_dir, cfg, stats, cache_index, logger))
