@@ -531,6 +531,7 @@ def _fetch_single_httpx(
             title=article.title,
         )
         return ExtractedArticle(article=article, text=text, error=None)
+    html_size = len(html) if html else 0
     stats.httpx_failed += 1
     log_event(
         logger,
@@ -539,6 +540,8 @@ def _fetch_single_httpx(
         url=article.url,
         title=article.title,
         error="Empty extraction result",
+        html_size=html_size,
+        extraction_methods=[cfg.extract.primary] + cfg.extract.fallback,
     )
     return ExtractedArticle(article=article, text=None, error="Empty extraction result")
 
