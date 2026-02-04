@@ -42,6 +42,8 @@ timestamp        -> out/YYYYMMDD-HHMMSS-<input-stem>/
 input_timestamp  -> out/<input-stem>-YYYYMMDD-HHMMSS/
 ```
 
+> **Note:** The default fetch backend is `crawl4ai` which supports JavaScript rendering. For faster static-only fetching, you can change `backend: crawl4ai` to `backend: httpx` in config.yaml.
+
 ## Config
 
 ```yaml
@@ -53,7 +55,7 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: httpx  # httpx or crawl4ai
+  backend: crawl4ai  # crawl4ai or httpx (crawl4ai supports JS rendering)
   fallback_to_httpx: true
   crawl4ai_concurrency: 4
   timeout_seconds: 20
