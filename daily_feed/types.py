@@ -25,6 +25,9 @@ class Article:
         author: Optional author name, extracted from source field if present
         summary: Optional brief summary from the RSS feed
         category: Optional category section this article belongs to
+        id: Optional unique identifier from JSON input
+        published_at: Optional ISO 8601 published timestamp from JSON input
+        inserted_at: Optional ISO 8601 insertion timestamp from JSON input
     """
     title: str
     site: str
@@ -33,6 +36,9 @@ class Article:
     author: str | None = None
     summary: str | None = None
     category: str | None = None
+    id: str | None = None
+    published_at: str | None = None
+    inserted_at: str | None = None
 
 
 @dataclass
