@@ -670,19 +670,45 @@ async def _fetch_and_extract_crawl4ai_async(
             await _advance_progress()
             return ExtractedArticle(article=article, text=text, error=None)
 
-        error_category = _categorize_error(result.error, result.status_code)
-        stats.crawl4ai_failed += 1
-        log_event(
-            logger,
-            "Fetch failed",
-            event="fetch_failed",
-            url=article.url,
-            title=article.title,
-            backend="crawl4ai",
-            error=result.error,
-            status_code=result.status_code,
-            error_category=error_category,
-        )
+        # Distinguish between fetch failures (network error) and extraction failures (empty result)
+        if result.error:
+            # Network/protocol error during fetch
+            error_category = _categorize_error(result.error, result.status_code)
+            stats.crawl4ai_failed += 1
+            log_event(
+                logger,
+                "Fetch failed",
+                event="fetch_failed",
+                url=article.url,
+                title=article.title,
+                backend="crawl4ai",
+                error=result.error,
+                status_code=result.status_code,
+                error_category=error_category,
+            )
+        else:
+            # Fetch succeeded but extraction produced empty content
+            # Note: crawl4ai returns pre-extracted markdown/text, not HTML
+            # When text is empty but no error, it means extraction failed
+            markdown_size = 0  # No markdown content was extracted
+            stats.crawl4ai_failed += 1
+            log_event(
+                logger,
+                "Extract failed",
+                event="extract_failed",
+                url=article.url,
+                title=article.title,
+                backend="crawl4ai",
+                error="Empty extraction result",
+                status_code=result.status_code,
+                markdown_size=markdown_size,
+                extraction_methods=["crawl4ai"],
+            )
+            # Don't fall back for extraction failures (fetch succeeded, content was empty)
+            await _advance_progress()
+            return ExtractedArticle(article=article, text=None, error="Empty extraction result")
+
+        # Fetch failed - check if fallback is enabled
         if cfg.fetch.fallback_to_httpx:
             stats.crawl4ai_fallback_used += 1
             extracted = await asyncio.to_thread(
