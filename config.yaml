@@ -6,8 +6,8 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: httpx
-  fallback_to_httpx: true
+  backend: crawl4ai  # Changed from httpx - supports JS rendering
+  fallback_to_httpx: true  # Keep fallback for static sites
   crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
