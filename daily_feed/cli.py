@@ -65,11 +65,11 @@ def run(
 ):
     """Run the daily feed pipeline.
 
-    Processes a markdown RSS export file, fetches article content,
+    Processes a JSON RSS export file, fetches article content,
     generates AI summaries, groups by topic, and outputs an HTML report.
 
     Args:
-        input: Path to input markdown file (Folo format)
+        input: Path to input JSON file (Folo format)
         output: Directory for output reports
         config: Optional path to YAML config file
         progress: Whether to show progress bar
