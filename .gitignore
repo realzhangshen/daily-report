@@ -12,4 +12,5 @@ out/
 cache/
 *.egg-info/
 data/
+.worktrees/
 **.DS_Store
