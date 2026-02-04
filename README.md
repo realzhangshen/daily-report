@@ -24,7 +24,7 @@ playwright install
 cp .env.example .env
 # edit .env to add GOOGLE_API_KEY
 
-daily-feed run --input data/folo-export-2026-02-03.md --output out --config config.example.yaml
+daily-feed run --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
 ```
 
 Output will be written to a subfolder under `out/` named after the input file stem, for example:
