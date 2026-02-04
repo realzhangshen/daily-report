@@ -19,6 +19,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 import asyncio
+import json
 
 from rich.console import Console
 from rich.progress import (
@@ -36,7 +37,7 @@ from .dedup import dedup_articles
 from .extractor import extract_text
 from .fetcher import cache_path, fetch_url, fetch_url_crawl4ai
 from .logging_utils import log_event, setup_llm_logger, setup_logging
-from .parser import parse_folo_markdown
+from .json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
 from .providers.gemini import GeminiProvider
 from .renderer import render_html, render_markdown
@@ -140,8 +141,11 @@ def run_pipeline(
 
         # Process without progress bar (quiet mode)
         if not show_progress:
-            raw = input_path.read_text(encoding="utf-8")
-            articles = parse_folo_markdown(raw)
+            # Load and parse JSON input file
+            with open(input_path) as f:
+                data = json.load(f)
+
+            articles = parse_folo_json(data)
 
             if cfg.dedup.enabled:
                 articles = dedup_articles(articles, cfg.dedup.title_similarity_threshold)
@@ -234,8 +238,11 @@ def run_pipeline(
         with progress:
             stage_task = progress.add_task("Stages", total=5)
 
-            raw = input_path.read_text(encoding="utf-8")
-            articles = parse_folo_markdown(raw)
+            # Load and parse JSON input file
+            with open(input_path) as f:
+                data = json.load(f)
+
+            articles = parse_folo_json(data)
             progress.advance(stage_task, 1)
 
             if cfg.dedup.enabled:
