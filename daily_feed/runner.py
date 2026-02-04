@@ -141,8 +141,8 @@ def run_pipeline(
 
         # Process without progress bar (quiet mode)
         if not show_progress:
-            # Load and parse JSON input file
-            with open(input_path) as f:
+            # Load JSON input file
+            with open(input_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             articles = parse_folo_json(data)
@@ -238,8 +238,8 @@ def run_pipeline(
         with progress:
             stage_task = progress.add_task("Stages", total=5)
 
-            # Load and parse JSON input file
-            with open(input_path) as f:
+            # Load JSON input file
+            with open(input_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             articles = parse_folo_json(data)
