@@ -43,6 +43,28 @@ from .renderer import render_html, render_markdown
 from .types import ArticleSummary, ExtractedArticle
 
 
+def _categorize_error(error: str | None, status_code: int | None) -> str:
+    """Categorize fetch errors for better logging.
+
+    Args:
+        error: Error message from fetch attempt
+        status_code: HTTP status code if available
+
+    Returns:
+        Error category: "network_failed", "blocked", "timeout", "unknown"
+    """
+    if not error:
+        return "unknown"
+    error_lower = error.lower()
+    if "timeout" in error_lower or "timed out" in error_lower:
+        return "timeout"
+    if "403" in str(status_code) or "blocked" in error_lower:
+        return "blocked"
+    if "connect" in error_lower or "connection" in error_lower:
+        return "network_failed"
+    return "unknown"
+
+
 @dataclass
 class FetchStats:
     """Statistics collected during the fetch/extract stage.
@@ -471,6 +493,7 @@ def _fetch_single_httpx(
                 error=None,
             )
         else:
+            error_category = _categorize_error(result.error, result.status_code)
             stats.httpx_failed += 1
             log_event(
                 logger,
@@ -480,6 +503,8 @@ def _fetch_single_httpx(
                 title=article.title,
                 backend="httpx",
                 error=result.error,
+                status_code=result.status_code,
+                error_category=error_category,
             )
             return ExtractedArticle(article=article, text=None, error=result.error)
 
@@ -642,6 +667,7 @@ async def _fetch_and_extract_crawl4ai_async(
             await _advance_progress()
             return ExtractedArticle(article=article, text=text, error=None)
 
+        error_category = _categorize_error(result.error, result.status_code)
         stats.crawl4ai_failed += 1
         log_event(
             logger,
@@ -651,6 +677,8 @@ async def _fetch_and_extract_crawl4ai_async(
             title=article.title,
             backend="crawl4ai",
             error=result.error,
+            status_code=result.status_code,
+            error_category=error_category,
         )
         if cfg.fetch.fallback_to_httpx:
             stats.crawl4ai_fallback_used += 1
