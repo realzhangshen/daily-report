@@ -38,3 +38,8 @@ daily_feed = ["templates/*.html"]
 
 [tool.uv]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

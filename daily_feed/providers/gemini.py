@@ -8,6 +8,7 @@ article summarization and topic grouping.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -55,7 +56,12 @@ class GeminiProvider(Provider):
         self.log_cfg = log_cfg
         self.llm_logger = llm_logger
 
-    def summarize_article(self, article: Article, text: str) -> ArticleSummary:
+    def summarize_article(
+        self,
+        article: Article,
+        text: str,
+        entry_logger: logging.Logger | None = None,
+    ) -> ArticleSummary:
         """Generate a summary for a single article using Gemini.
 
         Sends the article title, metadata, and content to Gemini with a prompt
@@ -107,6 +113,7 @@ class GeminiProvider(Provider):
                     status="ok",
                     content=content,
                     prompt=prompt,
+                    logger=entry_logger,
                 )
             except httpx.HTTPError as exc:
                 record_span_error(span, exc)
@@ -116,6 +123,7 @@ class GeminiProvider(Provider):
                     status="provider_error",
                     content=str(exc),
                     prompt=prompt,
+                    logger=entry_logger,
                 )
                 return ArticleSummary(
                     article=article,
@@ -131,6 +139,7 @@ class GeminiProvider(Provider):
                     status="parse_error",
                     content=content,
                     prompt=prompt,
+                    logger=entry_logger,
                 )
                 fallback = _fallback_from_text(content)
                 return ArticleSummary(
@@ -236,6 +245,7 @@ class GeminiProvider(Provider):
         status: str,
         content: str,
         prompt: str,
+        logger: logging.Logger | None = None,
     ) -> None:
         """Log an LLM summarization response.
 
@@ -248,8 +258,10 @@ class GeminiProvider(Provider):
             status: Status of the request (ok, provider_error, parse_error)
             content: The LLM response content
             prompt: The prompt sent to the LLM
+            logger: Logger to use (falls back to self.llm_logger if None)
         """
-        if self.llm_logger is None:
+        active_logger = logger or self.llm_logger
+        if active_logger is None:
             return
         detail = self.log_cfg.llm_log_detail
         redaction = self.log_cfg.llm_log_redaction
@@ -269,7 +281,7 @@ class GeminiProvider(Provider):
             payload["raw_response"] = truncate_text(redact_text(content, redaction))
         else:
             payload["raw_response"] = truncate_text(redact_text(content, redaction))
-        log_event(self.llm_logger, "LLM response", **payload)
+        log_event(active_logger, "LLM response", **payload)
 
     def _log_llm_group_response(self, content: str, status: str, prompt: str) -> None:
         """Log an LLM topic grouping response.
