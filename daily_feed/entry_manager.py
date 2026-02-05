@@ -8,7 +8,9 @@ a slug-based name and short hash for uniqueness.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import time
 from pathlib import Path
 
 from daily_feed.types import Article
@@ -131,3 +133,29 @@ class EntryManager:
         for this article entry.
         """
         self.folder.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def is_entry_valid(folder: Path, ttl_days: int | None) -> bool:
+        """Check if entry cache is still valid based on TTL.
+
+        Args:
+            folder: Path to the entry folder
+            ttl_days: TTL in days, or None for no expiration
+
+        Returns:
+            True if folder exists and is within TTL (or TTL is None)
+        """
+        # If folder doesn't exist, it's invalid
+        if not folder.exists():
+            return False
+
+        # If TTL is None, no expiration - always valid if it exists
+        if ttl_days is None:
+            return True
+
+        # Check if folder age is within TTL
+        folder_mtime = folder.stat().st_mtime
+        folder_age_seconds = time.time() - folder_mtime
+        ttl_seconds = ttl_days * 86400
+
+        return folder_age_seconds <= ttl_seconds

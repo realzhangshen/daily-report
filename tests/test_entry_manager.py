@@ -1,6 +1,8 @@
 """Tests for EntryManager class."""
 
+import os
 import tempfile
+import time
 from pathlib import Path
 
 from daily_feed.types import Article
@@ -51,3 +53,48 @@ def test_ensure_folder():
         manager.ensure_folder()
         assert manager.folder.exists()
         assert manager.folder.is_dir()
+
+
+def test_is_entry_valid_no_ttl():
+    """Entry should be valid if exists and TTL is None"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+        manager.ensure_folder()
+
+        # Should be valid when no TTL
+        assert EntryManager.is_entry_valid(manager.folder, ttl_days=None)
+
+
+def test_is_entry_valid_fresh():
+    """Entry should be valid if within TTL"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+        manager.ensure_folder()
+
+        # Should be valid for fresh entry
+        assert EntryManager.is_entry_valid(manager.folder, ttl_days=7)
+
+
+def test_is_entry_valid_expired():
+    """Entry should be invalid if older than TTL"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+        manager.ensure_folder()
+
+        # Modify folder mtime to be older than TTL
+        old_time = time.time() - (8 * 86400)  # 8 days ago
+        os.utime(manager.folder, (old_time, old_time))
+
+        # Should be invalid with 7 day TTL
+        assert not EntryManager.is_entry_valid(manager.folder, ttl_days=7)
+
+
+def test_is_entry_valid_missing():
+    """Missing entry should be invalid"""
+    assert not EntryManager.is_entry_valid(Path("/nonexistent/folder"), ttl_days=7)
