@@ -44,6 +44,28 @@ input_timestamp  -> out/<input-stem>-YYYYMMDD-HHMMSS/
 
 > **Note:** The default fetch backend is `crawl4ai` which supports JavaScript rendering. For faster static-only fetching, you can change `backend: crawl4ai` to `backend: httpx` in config.yaml.
 
+## Cache Structure
+
+Articles are cached in per-entry folders under `articles/`:
+
+```
+out/run-20260205/
+├── report.html
+├── run.jsonl              # Pipeline-level events
+└── articles/              # Per-article cache
+    ├── article-one-a1b2c/
+    │   ├── fetched.html       # Raw HTML
+    │   ├── extracted.txt      # Extracted text
+    │   ├── llm_summary.json   # Summary result
+    │   └── llm_debug.jsonl    # LLM logs
+    └── article-two-c3d4e/
+        └── ...
+```
+
+Each entry folder is named `{slug}-{shortHash}` where:
+- `slug`: URL-safe version of article title
+- `shortHash`: First 5 chars of MD5 hash of URL
+
 ## Config
 
 ```yaml
