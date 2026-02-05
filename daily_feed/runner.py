@@ -154,7 +154,7 @@ def run_pipeline(
                 input_value={"count": len(articles)},
             ):
                 extracted, stats = _fetch_articles(
-                    articles, articles_dir, cfg, None, logger
+                    articles, articles_dir, cfg, logger
                 )
             _render_fetch_stats(stats, console or Console())
             provider = _build_provider(cfg, None)
@@ -284,7 +284,7 @@ def run_pipeline(
                 input_value={"count": len(articles)},
             ):
                 extracted, stats = _fetch_articles(
-                    articles, articles_dir, cfg, None, logger, progress, fetch_task
+                    articles, articles_dir, cfg, logger, progress, fetch_task
                 )
             _render_fetch_stats(stats, console)
             progress.advance(stage_task, 1)
@@ -405,7 +405,8 @@ def _fetch_and_extract(articles, articles_dir: Path, cfg: AppConfig):
     Returns:
         List of ExtractedArticle objects
     """
-    extracted, _stats = _fetch_articles(articles, articles_dir, cfg, None, None)
+    logger = logging.getLogger("daily_feed")
+    extracted, _stats = _fetch_articles(articles, articles_dir, cfg, logger)
     return extracted
 
 
