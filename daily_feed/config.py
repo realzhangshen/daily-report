@@ -30,13 +30,17 @@ class FetchConfig:
     """Configuration for HTTP content fetching.
 
     Attributes:
-        backend: "httpx" for fast fetching, "crawl4ai" for JS rendering
-        fallback_to_httpx: If True, falls back to httpx when crawl4ai fails
+        backend: "httpx" for fast fetching, "crawl4ai" for JS rendering, "curl_cffi" for Cloudflare bypass
+        fallback_to_httpx: If True, falls back to httpx when crawl4ai/curl_cffi fails
         crawl4ai_concurrency: Number of concurrent crawl4ai requests
         timeout_seconds: HTTP request timeout
         retries: Number of retry attempts for failed requests
         trust_env: Whether to respect system proxy settings
         user_agent: HTTP User-Agent header string
+        crawl4ai_stealth: Enable stealth mode to bypass bot detection
+        crawl4ai_delay: Delay before returning HTML (allows challenges to complete)
+        crawl4ai_simulate_user: Simulate user behavior for anti-bot
+        crawl4ai_magic: Enable anti-detection "magic" mode
     """
 
     backend: str = "httpx"
@@ -50,6 +54,11 @@ class FetchConfig:
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     )
+    # Anti-bot detection options for Crawl4AI
+    crawl4ai_stealth: bool = True
+    crawl4ai_delay: float = 2.0
+    crawl4ai_simulate_user: bool = True
+    crawl4ai_magic: bool = True
 
 
 @dataclass

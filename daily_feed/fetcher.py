@@ -1,9 +1,10 @@
 """
 HTTP content fetching with multiple backend support.
 
-This module provides two fetching backends:
+This module provides three fetching backends:
 1. httpx: Fast synchronous HTTP client (default)
 2. crawl4ai: Async client with JavaScript rendering for dynamic content
+3. curl_cffi: HTTP client with browser TLS fingerprint impersonation (bypasses Cloudflare)
 
 Both support retry logic, timeout configuration, and environment proxy support.
 """
@@ -87,6 +88,11 @@ async def fetch_url_crawl4ai(
     url: str,
     timeout: float,
     retries: int,
+    user_agent: str | None = None,
+    stealth: bool = True,
+    delay: float = 2.0,
+    simulate_user: bool = True,
+    magic: bool = True,
 ) -> FetchResult:
     """Fetch a URL using Crawl4AI with JavaScript rendering.
 
@@ -98,12 +104,17 @@ async def fetch_url_crawl4ai(
         url: The URL to fetch
         timeout: Page timeout in seconds (converted to ms for Crawl4AI)
         retries: Number of retry attempts after initial failure
+        user_agent: Custom user agent string (overrides default)
+        stealth: Enable stealth mode to bypass bot detection
+        delay: Delay before returning HTML (allows challenges to complete)
+        simulate_user: Simulate user behavior for anti-bot
+        magic: Enable anti-detection "magic" mode
 
     Returns:
         FetchResult with markdown text on success or error message on failure
     """
     try:
-        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, BrowserConfig
     except Exception as exc:  # noqa: BLE001
         return FetchResult(url=url, status_code=None, text=None, error=f"ImportError: {exc}")
 
@@ -111,8 +122,20 @@ async def fetch_url_crawl4ai(
 
     for attempt in range(retries + 1):
         try:
-            run_cfg = CrawlerRunConfig(page_timeout=int(timeout * 1000))
-            async with AsyncWebCrawler() as crawler:
+            # Configure browser with anti-detection options
+            # BrowserConfig requires a non-None user_agent
+            browser_cfg = BrowserConfig(
+                user_agent=user_agent or "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                enable_stealth=stealth,
+            )
+            # Configure crawler run with anti-detection options
+            run_cfg = CrawlerRunConfig(
+                page_timeout=int(timeout * 1000),
+                delay_before_return_html=delay,
+                simulate_user=simulate_user,
+                magic=magic,
+            )
+            async with AsyncWebCrawler(config=browser_cfg) as crawler:
                 result = await crawler.arun(url=url, config=run_cfg)
 
             # Check if crawl succeeded
@@ -148,6 +171,71 @@ async def fetch_url_crawl4ai(
             last_error = f"{type(exc).__name__}: {exc}"
             if attempt < retries:
                 await asyncio.sleep(0.5 * (attempt + 1))
+
+    return FetchResult(url=url, status_code=None, text=None, error=last_error)
+
+
+def fetch_url_curlcffi(
+    url: str,
+    timeout: float,
+    retries: int,
+    user_agent: str,
+    trust_env: bool,
+) -> FetchResult:
+    """Fetch a URL using curl_cffi with browser TLS fingerprint impersonation.
+
+    Uses curl_cffi to impersonate a real browser's TLS fingerprint, which
+    helps bypass Cloudflare and other bot protection systems that use
+    TLS fingerprinting.
+
+    Args:
+        url: The URL to fetch
+        timeout: Request timeout in seconds
+        retries: Number of retry attempts after initial failure
+        user_agent: User-Agent header string
+        trust_env: Whether to respect system proxy settings from environment
+
+    Returns:
+        FetchResult with text on success or error message on failure
+    """
+    try:
+        from curl_cffi import requests
+    except Exception as exc:  # noqa: BLE001
+        return FetchResult(url=url, status_code=None, text=None, error=f"ImportError: {exc}")
+
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
+    }
+
+    last_error: str | None = None
+
+    # Attempt the request with exponential backoff between retries
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(
+                url,
+                impersonate="chrome110",  # Chrome 110 has good TLS fingerprint
+                timeout=timeout,
+                headers=headers,
+                verify=True,  # Verify SSL certificates
+                allow_redirects=True,
+            )
+            return FetchResult(url=url, status_code=resp.status_code, text=resp.text, error=None)
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"{type(exc).__name__}: {exc}"
+            if attempt < retries:
+                # Exponential backoff: 0.5s, 1.0s, 1.5s...
+                time.sleep(0.5 * (attempt + 1))
 
     return FetchResult(url=url, status_code=None, text=None, error=last_error)
 

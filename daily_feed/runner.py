@@ -36,7 +36,7 @@ from .config import AppConfig, get_api_key
 from .dedup import dedup_articles
 from .entry_manager import EntryManager
 from .extractor import extract_text
-from .fetcher import fetch_url, fetch_url_crawl4ai
+from .fetcher import fetch_url, fetch_url_crawl4ai, fetch_url_curlcffi
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
@@ -82,6 +82,9 @@ class FetchStats:
         crawl4ai_fallback_used: Times httpx fallback was used
         httpx_success: Successful httpx fetches
         httpx_failed: Failed httpx fetches
+        curlcffi_success: Successful curl_cffi fetches
+        curlcffi_failed: Failed curl_cffi fetches
+        curlcffi_fallback_used: Times httpx fallback was used for curl_cffi
     """
     total: int = 0
     cache_hits: int = 0
@@ -90,6 +93,9 @@ class FetchStats:
     crawl4ai_fallback_used: int = 0
     httpx_success: int = 0
     httpx_failed: int = 0
+    curlcffi_success: int = 0
+    curlcffi_failed: int = 0
+    curlcffi_fallback_used: int = 0
 
 
 def run_pipeline(
@@ -421,7 +427,7 @@ def _fetch_articles(
 ) -> tuple[list[ExtractedArticle], FetchStats]:
     """Fetch and extract content for all articles.
 
-    Dispatches to the appropriate backend (httpx or crawl4ai) based
+    Dispatches to the appropriate backend (httpx, crawl4ai, or curl_cffi) based
     on configuration. Returns extracted articles and statistics.
 
     Args:
@@ -439,6 +445,11 @@ def _fetch_articles(
     backend = (cfg.fetch.backend or "httpx").lower()
     if backend == "crawl4ai":
         extracted = _fetch_and_extract_crawl4ai(
+            articles, articles_dir, cfg, stats, logger, progress, fetch_task
+        )
+        return extracted, stats
+    if backend == "curl_cffi":
+        extracted = _fetch_and_extract_curlcffi(
             articles, articles_dir, cfg, stats, logger, progress, fetch_task
         )
         return extracted, stats
@@ -699,6 +710,11 @@ async def _fetch_and_extract_crawl4ai_async(
                 article.url,
                 timeout=cfg.fetch.timeout_seconds,
                 retries=cfg.fetch.retries,
+                user_agent=cfg.fetch.user_agent,
+                stealth=cfg.fetch.crawl4ai_stealth,
+                delay=cfg.fetch.crawl4ai_delay,
+                simulate_user=cfg.fetch.crawl4ai_simulate_user,
+                magic=cfg.fetch.crawl4ai_magic,
             )
 
         text = result.text
@@ -791,13 +807,176 @@ def _render_fetch_stats(stats: FetchStats, console: Console) -> None:
         console.print(
             f"[bold]httpx[/bold]: success={stats.httpx_success}, failed={stats.httpx_failed}"
         )
+    if stats.curlcffi_success or stats.curlcffi_failed:
+        console.print(
+            f"[bold]curl_cffi[/bold]: success={stats.curlcffi_success}, failed={stats.curlcffi_failed}, "
+            f"fallback_used={stats.curlcffi_fallback_used}"
+        )
+
+
+def _fetch_and_extract_curlcffi(
+    articles,
+    articles_dir: Path,
+    cfg: AppConfig,
+    stats: FetchStats,
+    logger,
+    progress: Progress | None = None,
+    fetch_task: int | None = None,
+) -> list[ExtractedArticle]:
+    """Fetch and extract using curl_cffi backend (sequential processing).
+
+    Uses curl_cffi with browser TLS fingerprint impersonation to bypass
+    Cloudflare and other bot protection systems.
+
+    Args:
+        articles: List of Article objects to fetch
+        articles_dir: Articles directory for storing fetched content
+        cfg: Application configuration
+        stats: Statistics object to update
+        logger: Logger for events
+        progress: Optional Rich progress bar
+        fetch_task: Task ID for progress updates
+
+    Returns:
+        List of ExtractedArticle objects
+    """
+    extracted: list[ExtractedArticle] = []
+    for article in articles:
+        extracted.append(_fetch_single_curlcffi(article, articles_dir, cfg, stats, logger))
+        if progress and fetch_task is not None:
+            progress.advance(fetch_task, 1)
+    return extracted
+
+
+def _fetch_single_curlcffi(
+    article,
+    articles_dir: Path,
+    cfg: AppConfig,
+    stats: FetchStats,
+    logger,
+) -> ExtractedArticle:
+    """Fetch a single article using curl_cffi and extract content.
+
+    Checks for cached text first, then cached HTML, then fetches
+    fresh content if needed. Extracts text from HTML using the
+    configured extraction chain.
+
+    Args:
+        article: Article to fetch
+        articles_dir: Articles directory for storing fetched content
+        cfg: Application configuration
+        stats: Statistics object to update
+        logger: Logger for events
+
+    Returns:
+        ExtractedArticle with text or error populated
+    """
+    entry = EntryManager(articles_dir, article)
+    entry.ensure_folder()
+
+    # Check for cached extracted text (fastest path)
+    if entry.extracted_txt.exists() and EntryManager.is_entry_valid(
+        entry.folder, cfg.cache.ttl_days
+    ):
+        text = entry.extracted_txt.read_text(encoding="utf-8")
+        stats.cache_hits += 1
+        log_event(
+            logger,
+            "Cache hit",
+            event="cache_hit",
+            url=article.url,
+            title=article.title,
+            cache_type="extracted_txt",
+        )
+        return ExtractedArticle(article=article, text=text)
+
+    # Check for cached HTML
+    if entry.fetched_html.exists() and EntryManager.is_entry_valid(
+        entry.folder, cfg.cache.ttl_days
+    ):
+        html = entry.fetched_html.read_text(encoding="utf-8", errors="ignore")
+    else:
+        log_event(
+            logger,
+            "Fetch start",
+            event="fetch_start",
+            url=article.url,
+            title=article.title,
+            backend="curl_cffi",
+        )
+        result = fetch_url_curlcffi(
+            article.url,
+            timeout=cfg.fetch.timeout_seconds,
+            retries=cfg.fetch.retries,
+            user_agent=cfg.fetch.user_agent,
+            trust_env=cfg.fetch.trust_env,
+        )
+        if result.text:
+            html = result.text
+            entry.fetched_html.write_text(html, encoding="utf-8")
+        else:
+            # Fallback to httpx if configured
+            if cfg.fetch.fallback_to_httpx:
+                stats.curlcffi_fallback_used += 1
+                log_event(
+                    logger,
+                    "Fallback to httpx",
+                    event="fallback",
+                    url=article.url,
+                    title=article.title,
+                    from_backend="curl_cffi",
+                    to_backend="httpx",
+                )
+                return _fetch_single_httpx(article, articles_dir, cfg, stats, logger)
+            error_category = _categorize_error(result.error, result.status_code)
+            stats.curlcffi_failed += 1
+            log_event(
+                logger,
+                "Fetch failed",
+                event="fetch_failed",
+                url=article.url,
+                title=article.title,
+                backend="curl_cffi",
+                error=result.error,
+                status_code=result.status_code,
+                error_category=error_category,
+            )
+            return ExtractedArticle(article=article, text=None, error=result.error)
+
+    text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
+    if text and _is_placeholder_text(text):
+        text = None
+    if text:
+        entry.extracted_txt.write_text(text, encoding="utf-8")
+        stats.curlcffi_success += 1
+        log_event(
+            logger,
+            "Extract success",
+            event="extract_success",
+            url=article.url,
+            title=article.title,
+        )
+        return ExtractedArticle(article=article, text=text, error=None)
+    html_size = len(html) if html else 0
+    stats.curlcffi_failed += 1
+    log_event(
+        logger,
+        "Extract failed",
+        event="extract_failed",
+        url=article.url,
+        title=article.title,
+        error="Empty extraction result",
+        html_size=html_size,
+        extraction_methods=[cfg.extract.primary] + cfg.extract.fallback,
+    )
+    return ExtractedArticle(article=article, text=None, error="Empty extraction result")
 
 
 def _is_placeholder_text(text: str) -> bool:
     """Detect if extracted text is a placeholder or too short.
 
-    JavaScript-disabled messages and very short content are
-    considered invalid placeholder text.
+    JavaScript-disabled messages, Cloudflare challenges, and very short
+    content are considered invalid placeholder text.
 
     Args:
         text: The extracted text to validate
@@ -809,6 +988,17 @@ def _is_placeholder_text(text: str) -> bool:
     if "javascript is disabled" in lowered or "please enable javascript" in lowered:
         return True
     if "enable javascript to continue" in lowered:
+        return True
+    # Detect Cloudflare challenge pages (more specific patterns)
+    if "verifying you are human" in lowered:
+        return True
+    if "just a moment..." in lowered:
+        return True
+    if "checking your browser before accessing" in lowered:
+        return True
+    # Only treat as Cloudflare challenge if it has both "ray id:" AND short content
+    # (legitimate pages using Cloudflare protection have longer content)
+    if "ray id:" in lowered and len(text.strip()) < 1000:
         return True
     return len(text.strip()) < 200
 

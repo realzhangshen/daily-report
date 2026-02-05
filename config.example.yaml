@@ -6,13 +6,18 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: crawl4ai  # Changed from httpx - supports JS rendering
+  backend: crawl4ai  # Options: httpx, crawl4ai (JS rendering), curl_cffi (bypasses Cloudflare)
   fallback_to_httpx: true  # Keep fallback for static sites
   crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true
   user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+  # Anti-bot detection options (helps with Cloudflare-protected sites like Product Hunt)
+  crawl4ai_stealth: true  # Enable stealth mode to bypass bot detection
+  crawl4ai_delay: 2.0  # Delay before returning HTML (allows challenges to complete)
+  crawl4ai_simulate_user: true  # Simulate user behavior for anti-bot
+  crawl4ai_magic: true  # Enable anti-detection "magic" mode
 extract:
   primary: trafilatura
   fallback: [readability, bs4]
