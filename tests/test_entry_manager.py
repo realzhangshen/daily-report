@@ -5,7 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from daily_feed.types import Article
+from daily_feed.types import Article, ArticleSummary
 from daily_feed.entry_manager import EntryManager
 
 
@@ -98,3 +98,40 @@ def test_is_entry_valid_expired():
 def test_is_entry_valid_missing():
     """Missing entry should be invalid"""
     assert not EntryManager.is_entry_valid(Path("/nonexistent/folder"), ttl_days=7)
+
+
+def test_write_and_read_llm_summary():
+    """Should write and read LLM summary JSON"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+        manager.ensure_folder()
+
+        summary = ArticleSummary(
+            article=article,
+            bullets=["point 1", "point 2"],
+            takeaway="Test takeaway",
+            topic="AI",
+            status="ok"
+        )
+        summary.meta = {"model": "test-model", "generated_at": "2026-02-05T00:00:00Z"}
+
+        manager.write_llm_summary(summary)
+
+        # Read it back
+        loaded = manager.read_llm_summary()
+        assert loaded["bullets"] == ["point 1", "point 2"]
+        assert loaded["takeaway"] == "Test takeaway"
+        assert loaded["topic"] == "AI"
+        assert loaded["status"] == "ok"
+
+
+def test_read_llm_summary_missing():
+    """Should return None if summary file doesn't exist"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+
+        assert manager.read_llm_summary() is None

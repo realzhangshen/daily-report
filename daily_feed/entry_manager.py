@@ -8,11 +8,14 @@ a slug-based name and short hash for uniqueness.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 from daily_feed.types import Article
+from daily_feed.types import ArticleSummary
 
 
 def slugify(text: str) -> str:
@@ -158,3 +161,47 @@ class EntryManager:
         ttl_seconds = ttl_days * 86400
 
         return folder_age_seconds <= ttl_seconds
+
+    def write_llm_summary(self, summary: ArticleSummary) -> None:
+        """Write LLM summary to JSON file.
+
+        The JSON includes:
+        - bullets
+        - takeaway
+        - topic
+        - status
+        - article (title, url, site)
+        - model (from summary.meta)
+        - generated_at (from summary.meta)
+
+        Args:
+            summary: The ArticleSummary object to write
+        """
+        data: dict[str, Any] = {
+            "bullets": summary.bullets,
+            "takeaway": summary.takeaway,
+            "topic": summary.topic,
+            "status": summary.status,
+            "article": {
+                "title": summary.article.title,
+                "url": summary.article.url,
+                "site": summary.article.site,
+            },
+            "model": summary.meta.get("model"),
+            "generated_at": summary.meta.get("generated_at"),
+        }
+
+        with open(self.llm_summary, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def read_llm_summary(self) -> dict[str, Any] | None:
+        """Read LLM summary from JSON file.
+
+        Returns:
+            Dictionary with summary data, or None if file doesn't exist
+        """
+        if not self.llm_summary.exists():
+            return None
+
+        with open(self.llm_summary, "r", encoding="utf-8") as f:
+            return json.load(f)
