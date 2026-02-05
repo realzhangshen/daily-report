@@ -85,7 +85,7 @@ async def fetch_url_crawl4ai_api(
         headers["Authorization"] = f"Basic {credentials}"
 
     payload = {
-        "url": url,
+        "urls": [url],  # API expects 'urls' as a list
         "timeout": int(timeout * 1000),  # Convert to milliseconds
         "delay_before_return_html": delay,
         "simulate_user": simulate_user,
@@ -110,6 +110,15 @@ async def fetch_url_crawl4ai_api(
 
                 if resp.status_code == 200:
                     data = resp.json()
+
+                    # API returns a list when using 'urls'
+                    if isinstance(data, list) and len(data) > 0:
+                        data = data[0]  # Get first (and only) result
+                    elif isinstance(data, list):
+                        last_error = "Crawl4AI API Error: empty result list"
+                        if attempt < retries:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
 
                     # Check for success field in response
                     if not data.get("success", True):
