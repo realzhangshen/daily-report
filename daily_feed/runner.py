@@ -34,6 +34,7 @@ from rich.progress import (
 from .config import AppConfig, get_api_key
 from .cache import CacheIndex
 from .dedup import dedup_articles
+from .entry_manager import EntryManager
 from .extractor import extract_text
 from .fetcher import cache_path, fetch_url, fetch_url_crawl4ai
 from .logging_utils import log_event, setup_llm_logger, setup_logging
@@ -115,13 +116,10 @@ def run_pipeline(
     """
     run_output_dir = _build_run_output_dir(output_dir, input_path, cfg)
     run_output_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir = _build_cache_dir(run_output_dir, output_dir, cfg)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_index = CacheIndex(
-        cache_dir, enabled=cfg.cache.write_index, filename=cfg.cache.index_filename
-    )
+    articles_dir = run_output_dir / "articles"
+    articles_dir.mkdir(parents=True, exist_ok=True)
     logger = setup_logging(cfg.logging, run_output_dir)
-    llm_logger = setup_llm_logger(cfg.logging, run_output_dir)
+    # llm_logger will be set up per-entry later
     setup_langfuse(cfg.langfuse)
 
     with start_span(
@@ -136,7 +134,7 @@ def run_pipeline(
             event="pipeline_start",
             input=str(input_path),
             output=str(run_output_dir),
-            cache_dir=str(cache_dir),
+            articles_dir=str(articles_dir),
         )
 
         # Process without progress bar (quiet mode)
@@ -156,10 +154,10 @@ def run_pipeline(
                 input_value={"count": len(articles)},
             ):
                 extracted, stats = _fetch_articles(
-                    articles, cache_dir, cfg, cache_index, logger
+                    articles, articles_dir, cfg, None, logger
                 )
             _render_fetch_stats(stats, console or Console())
-            provider = _build_provider(cfg, llm_logger)
+            provider = _build_provider(cfg, None)
 
             summaries: list[ArticleSummary] = []
             with start_span(
@@ -256,12 +254,12 @@ def run_pipeline(
                 input_value={"count": len(articles)},
             ):
                 extracted, stats = _fetch_articles(
-                    articles, cache_dir, cfg, cache_index, logger, progress, fetch_task
+                    articles, articles_dir, cfg, None, logger, progress, fetch_task
                 )
             _render_fetch_stats(stats, console)
             progress.advance(stage_task, 1)
 
-            provider = _build_provider(cfg, llm_logger)
+            provider = _build_provider(cfg, None)
 
             summarize_task = progress.add_task("Summarize", total=len(extracted))
             summaries: list[ArticleSummary] = []
