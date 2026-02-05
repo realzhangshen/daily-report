@@ -29,6 +29,9 @@ def slugify(text: str) -> str:
     slug = re.sub(r'[^a-z0-9]+', '-', slug)
     # Strip leading/trailing hyphens
     slug = slug.strip('-')
+    # Fallback for empty slug (e.g., empty title or only special characters)
+    if not slug:
+        slug = "untitled"
     # Limit to 50 characters
     slug = slug[:50]
     return slug

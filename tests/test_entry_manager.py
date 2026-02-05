@@ -1,6 +1,5 @@
 """Tests for EntryManager class."""
 
-import pytest
 import tempfile
 from pathlib import Path
 
