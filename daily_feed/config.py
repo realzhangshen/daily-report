@@ -3,7 +3,7 @@ Configuration management using YAML files and dataclasses.
 
 This module defines all configuration dataclasses and provides loading
 from YAML files with defaults. Configuration sections:
-- FetchConfig: HTTP fetching settings
+- FetchConfig: Remote Crawl4AI API fetching settings
 - ExtractConfig: Content extraction settings
 - DedupConfig: Deduplication settings
 - SummaryConfig: LLM summarization settings
@@ -27,12 +27,9 @@ import yaml
 
 @dataclass
 class FetchConfig:
-    """Configuration for HTTP content fetching.
+    """Configuration for HTTP content fetching via remote Crawl4AI API.
 
     Attributes:
-        backend: "httpx" for fast fetching, "crawl4ai" for JS rendering, "curl_cffi" for Cloudflare bypass
-        fallback_to_httpx: If True, falls back to httpx when crawl4ai/curl_cffi fails
-        crawl4ai_concurrency: Number of concurrent crawl4ai requests
         timeout_seconds: HTTP request timeout
         retries: Number of retry attempts for failed requests
         trust_env: Whether to respect system proxy settings
@@ -41,12 +38,9 @@ class FetchConfig:
         crawl4ai_delay: Delay before returning HTML (allows challenges to complete)
         crawl4ai_simulate_user: Simulate user behavior for anti-bot
         crawl4ai_magic: Enable anti-detection "magic" mode
-        crawl4ai_api_url: Remote Crawl4AI API URL (if set, uses API instead of local library)
+        crawl4ai_api_url: Remote Crawl4AI API URL (required - uses environment variable if not set)
     """
 
-    backend: str = "httpx"
-    fallback_to_httpx: bool = True
-    crawl4ai_concurrency: int = 4
     timeout_seconds: float = 20.0
     retries: int = 2
     trust_env: bool = True
@@ -280,9 +274,6 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "trust_env": cfg.provider.trust_env,
         },
         "fetch": {
-            "backend": cfg.fetch.backend,
-            "fallback_to_httpx": cfg.fetch.fallback_to_httpx,
-            "crawl4ai_concurrency": cfg.fetch.crawl4ai_concurrency,
             "timeout_seconds": cfg.fetch.timeout_seconds,
             "retries": cfg.fetch.retries,
             "trust_env": cfg.fetch.trust_env,
@@ -348,9 +339,16 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
 
 def _fromdict(data: dict[str, Any]) -> AppConfig:
     """Reconstruct AppConfig from nested dictionary."""
+    # Handle old config files that may have deprecated fields
+    fetch_data = data.get("fetch", {})
+    # Ignore deprecated fields for backward compatibility
+    fetch_data.pop("backend", None)
+    fetch_data.pop("fallback_to_httpx", None)
+    fetch_data.pop("crawl4ai_concurrency", None)
+
     return AppConfig(
         provider=ProviderConfig(**data["provider"]),
-        fetch=FetchConfig(**data["fetch"]),
+        fetch=FetchConfig(**fetch_data),
         extract=ExtractConfig(**data["extract"]),
         dedup=DedupConfig(**data["dedup"]),
         summary=SummaryConfig(**data["summary"]),

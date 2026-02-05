@@ -9,20 +9,11 @@ uv venv
 uv pip install -e .
 ```
 
-### Optional: Crawl4AI Web Fetch
-
-If you want JS-rendered fetching, install Crawl4AI:
-
-```bash
-pip install -U crawl4ai
-playwright install
-```
-
 ## Run
 
 ```bash
 cp .env.example .env
-# edit .env to add GOOGLE_API_KEY
+# edit .env to add GOOGLE_API_KEY and CRAWL4AI_API_URL
 
 daily-feed run --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
 ```
@@ -42,7 +33,7 @@ timestamp        -> out/YYYYMMDD-HHMMSS-<input-stem>/
 input_timestamp  -> out/<input-stem>-YYYYMMDD-HHMMSS/
 ```
 
-> **Note:** The default fetch backend is `crawl4ai` which supports JavaScript rendering. For faster static-only fetching, you can change `backend: crawl4ai` to `backend: httpx` in config.yaml.
+> **Note:** This project requires a remote Crawl4AI API service for fetching articles. Set the `CRAWL4AI_API_URL` environment variable to point to your Crawl4AI API server.
 
 ## Cache Structure
 
@@ -54,8 +45,7 @@ out/run-20260205/
 ├── run.jsonl              # Pipeline-level events
 └── articles/              # Per-article cache
     ├── article-one-a1b2c/
-    │   ├── fetched.html       # Raw HTML
-    │   ├── extracted.txt      # Extracted text
+    │   ├── extracted.txt      # Extracted text/markdown
     │   ├── llm_summary.json   # Summary result
     │   └── llm_debug.jsonl    # LLM logs
     └── article-two-c3d4e/
@@ -77,14 +67,16 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: crawl4ai  # crawl4ai or httpx (crawl4ai supports JS rendering)
-  fallback_to_httpx: true
-  crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true
   user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
-  # Remote Crawl4AI API (optional - use environment variable for sensitive URLs)
+  # Anti-bot detection options
+  crawl4ai_stealth: true  # Enable stealth mode to bypass bot detection
+  crawl4ai_delay: 2.0  # Delay before returning HTML (allows challenges to complete)
+  crawl4ai_simulate_user: true  # Simulate user behavior for anti-bot
+  crawl4ai_magic: true  # Enable anti-detection "magic" mode
+  # Remote Crawl4AI API (required - use environment variable for sensitive URLs)
   crawl4ai_api_url: null  # Uses CRAWL4AI_API_URL from environment
 extract:
   primary: trafilatura

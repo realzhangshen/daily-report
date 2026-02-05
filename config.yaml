@@ -6,9 +6,6 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: curl_cffi  # Options: httpx, crawl4ai, curl_cffi (bypasses Cloudflare)
-  fallback_to_httpx: true  # Keep fallback for static sites
-  crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true

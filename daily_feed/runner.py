@@ -4,17 +4,18 @@ Main pipeline orchestration for the Daily Feed Agent.
 This module coordinates the entire workflow:
 1. Parse markdown input
 2. Deduplicate articles
-3. Fetch and extract content
+3. Fetch and extract content (via remote Crawl4AI API only)
 4. Generate summaries via LLM
 5. Group by topic
 6. Render output files
 
-Supports both progress bar and quiet modes, with configurable
-fetching backends (httpx or crawl4ai).
+Supports both progress bar and quiet modes. Fetching is done exclusively
+through the remote Crawl4AI API service.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +38,7 @@ from .dedup import dedup_articles
 from .entry_manager import EntryManager
 from .extractor import extract_text
 from .config import get_crawl4ai_api_url
-from .fetcher import fetch_url, fetch_url_crawl4ai, fetch_url_crawl4ai_api, fetch_url_curlcffi
+from .fetcher import fetch_url_crawl4ai_api
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
@@ -72,31 +73,18 @@ def _categorize_error(error: str | None, status_code: int | None) -> str:
 class FetchStats:
     """Statistics collected during the fetch/extract stage.
 
-    Tracks success/failure rates for different backends and
-    cache hit rate for performance monitoring.
+    Tracks success/failure rates and cache hit rate for performance monitoring.
 
     Attributes:
         total: Total number of articles to fetch
         cache_hits: Number served from cache
-        crawl4ai_success: Successful crawl4ai fetches
-        crawl4ai_failed: Failed crawl4ai fetches
-        crawl4ai_fallback_used: Times httpx fallback was used
-        httpx_success: Successful httpx fetches
-        httpx_failed: Failed httpx fetches
-        curlcffi_success: Successful curl_cffi fetches
-        curlcffi_failed: Failed curl_cffi fetches
-        curlcffi_fallback_used: Times httpx fallback was used for curl_cffi
+        api_success: Successful API fetches
+        api_failed: Failed API fetches
     """
     total: int = 0
     cache_hits: int = 0
-    crawl4ai_success: int = 0
-    crawl4ai_failed: int = 0
-    crawl4ai_fallback_used: int = 0
-    httpx_success: int = 0
-    httpx_failed: int = 0
-    curlcffi_success: int = 0
-    curlcffi_failed: int = 0
-    curlcffi_fallback_used: int = 0
+    api_success: int = 0
+    api_failed: int = 0
 
 
 def run_pipeline(
@@ -421,15 +409,11 @@ def _fetch_articles(
     articles,
     articles_dir: Path,
     cfg: AppConfig,
-    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
 ) -> tuple[list[ExtractedArticle], FetchStats]:
-    """Fetch and extract content for all articles.
-
-    Dispatches to the appropriate backend (httpx, crawl4ai, or curl_cffi) based
-    on configuration. Returns extracted articles and statistics.
+    """Fetch and extract content for all articles using remote Crawl4AI API.
 
     Args:
         articles: List of Article objects to fetch
@@ -443,184 +427,24 @@ def _fetch_articles(
         Tuple of (extracted articles, fetch statistics)
     """
     stats = FetchStats(total=len(articles))
-    backend = (cfg.fetch.backend or "httpx").lower()
-    if backend == "crawl4ai":
-        extracted = _fetch_and_extract_crawl4ai(
-            articles, articles_dir, cfg, stats, logger, progress, fetch_task
-        )
-        return extracted, stats
-    if backend == "curl_cffi":
-        extracted = _fetch_and_extract_curlcffi(
-            articles, articles_dir, cfg, stats, logger, progress, fetch_task
-        )
-        return extracted, stats
-    extracted = _fetch_and_extract_httpx(
+    extracted = _fetch_and_extract_api(
         articles, articles_dir, cfg, stats, logger, progress, fetch_task
     )
     return extracted, stats
 
 
-def _fetch_and_extract_httpx(
+def _fetch_and_extract_api(
     articles,
     articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
-    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
 ) -> list[ExtractedArticle]:
-    """Fetch and extract using httpx backend (sequential processing).
+    """Fetch and extract using remote Crawl4AI API (async concurrent processing).
 
-    Processes each article sequentially, checking cache first, then
-    fetching HTML and extracting text content.
-
-    Args:
-        articles: List of Article objects to fetch
-        articles_dir: Articles directory for storing fetched content
-        cfg: Application configuration
-        stats: Statistics object to update
-        logger: Logger for events
-        progress: Optional Rich progress bar
-        fetch_task: Task ID for progress updates
-
-    Returns:
-        List of ExtractedArticle objects
-    """
-    extracted: list[ExtractedArticle] = []
-    for article in articles:
-        extracted.append(_fetch_single_httpx(article, articles_dir, cfg, stats, logger))
-        if progress and fetch_task is not None:
-            progress.advance(fetch_task, 1)
-    return extracted
-
-
-def _fetch_single_httpx(
-    article,
-    articles_dir: Path,
-    cfg: AppConfig,
-    stats: FetchStats,
-    logger,
-) -> ExtractedArticle:
-    """Fetch a single article using httpx and extract content.
-
-    Checks for cached text first, then cached HTML, then fetches
-    fresh content if needed. Extracts text from HTML using the
-    configured extraction chain.
-
-    Args:
-        article: Article to fetch
-        articles_dir: Articles directory for storing fetched content
-        cfg: Application configuration
-        stats: Statistics object to update
-        logger: Logger for events
-
-    Returns:
-        ExtractedArticle with text or error populated
-    """
-    entry = EntryManager(articles_dir, article)
-    entry.ensure_folder()
-
-    # Check for cached extracted text (fastest path)
-    if entry.extracted_txt.exists() and EntryManager.is_entry_valid(
-        entry.folder, cfg.cache.ttl_days
-    ):
-        text = entry.extracted_txt.read_text(encoding="utf-8")
-        stats.cache_hits += 1
-        log_event(
-            logger,
-            "Cache hit",
-            event="cache_hit",
-            url=article.url,
-            title=article.title,
-            cache_type="extracted_txt",
-        )
-        return ExtractedArticle(article=article, text=text)
-
-    # Check for cached HTML
-    if entry.fetched_html.exists() and EntryManager.is_entry_valid(
-        entry.folder, cfg.cache.ttl_days
-    ):
-        html = entry.fetched_html.read_text(encoding="utf-8", errors="ignore")
-    else:
-        log_event(
-            logger,
-            "Fetch start",
-            event="fetch_start",
-            url=article.url,
-            title=article.title,
-            backend="httpx",
-        )
-        result = fetch_url(
-            article.url,
-            timeout=cfg.fetch.timeout_seconds,
-            retries=cfg.fetch.retries,
-            user_agent=cfg.fetch.user_agent,
-            trust_env=cfg.fetch.trust_env,
-        )
-        if result.text:
-            html = result.text
-            entry.fetched_html.write_text(html, encoding="utf-8")
-        else:
-            error_category = _categorize_error(result.error, result.status_code)
-            stats.httpx_failed += 1
-            log_event(
-                logger,
-                "Fetch failed",
-                event="fetch_failed",
-                url=article.url,
-                title=article.title,
-                backend="httpx",
-                error=result.error,
-                status_code=result.status_code,
-                error_category=error_category,
-            )
-            return ExtractedArticle(article=article, text=None, error=result.error)
-
-    text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
-    if text and _is_placeholder_text(text):
-        text = None
-    if text:
-        entry.extracted_txt.write_text(text, encoding="utf-8")
-        stats.httpx_success += 1
-        log_event(
-            logger,
-            "Extract success",
-            event="extract_success",
-            url=article.url,
-            title=article.title,
-        )
-        return ExtractedArticle(article=article, text=text, error=None)
-    html_size = len(html) if html else 0
-    stats.httpx_failed += 1
-    log_event(
-        logger,
-        "Extract failed",
-        event="extract_failed",
-        url=article.url,
-        title=article.title,
-        error="Empty extraction result",
-        html_size=html_size,
-        extraction_methods=[cfg.extract.primary] + cfg.extract.fallback,
-    )
-    return ExtractedArticle(article=article, text=None, error="Empty extraction result")
-
-
-def _fetch_and_extract_crawl4ai(
-    articles,
-    articles_dir: Path,
-    cfg: AppConfig,
-    stats: FetchStats,
-    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
-    logger,
-    progress: Progress | None = None,
-    fetch_task: int | None = None,
-) -> list[ExtractedArticle]:
-    """Fetch and extract using crawl4ai backend (async concurrent processing).
-
-    Uses asyncio to process multiple articles concurrently with
-    semaphore-controlled concurrency limits. Falls back to httpx
-    if configured and crawl4ai fails.
+    Uses asyncio to process multiple articles concurrently.
 
     Args:
         articles: List of Article objects to fetch
@@ -635,26 +459,24 @@ def _fetch_and_extract_crawl4ai(
         List of ExtractedArticle objects
     """
     return asyncio.run(
-        _fetch_and_extract_crawl4ai_async(
+        _fetch_and_extract_api_async(
             articles, articles_dir, cfg, stats, logger, progress, fetch_task
         )
     )
 
 
-async def _fetch_and_extract_crawl4ai_async(
+async def _fetch_and_extract_api_async(
     articles,
     articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
-    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
 ) -> list[ExtractedArticle]:
-    """Async implementation of crawl4ai fetching with concurrent processing.
+    """Async implementation of Crawl4AI API fetching with concurrent processing.
 
-    Creates tasks for all articles and runs them with semaphore-controlled
-    concurrency. Handles cache checking and fallback to httpx.
+    Creates tasks for all articles and runs them concurrently.
 
     Args:
         articles: List of Article objects to fetch
@@ -668,8 +490,13 @@ async def _fetch_and_extract_crawl4ai_async(
     Returns:
         List of ExtractedArticle objects
     """
-    # Semaphore limits concurrent requests to avoid overwhelming the server
-    semaphore = asyncio.Semaphore(max(1, int(cfg.fetch.crawl4ai_concurrency or 1)))
+    api_url = get_crawl4ai_api_url(cfg.fetch)
+    if not api_url:
+        raise ValueError(
+            "Crawl4AI API URL is required. Set CRAWL4AI_API_URL environment variable "
+            "or configure crawl4ai_api_url in config."
+        )
+
     progress_lock = asyncio.Lock()
 
     async def _advance_progress() -> None:
@@ -698,43 +525,26 @@ async def _fetch_and_extract_crawl4ai_async(
             await _advance_progress()
             return ExtractedArticle(article=article, text=text)
 
-        async with semaphore:
-            log_event(
-                logger,
-                "Fetch start",
-                event="fetch_start",
-                url=article.url,
-                title=article.title,
-                backend="crawl4ai",
-            )
+        log_event(
+            logger,
+            "Fetch start",
+            event="fetch_start",
+            url=article.url,
+            title=article.title,
+            backend="crawl4ai_api",
+        )
 
-            # Use remote API if configured, otherwise use local library
-            api_url = get_crawl4ai_api_url(cfg.fetch)
-            if api_url:
-                backend_type = "crawl4ai_api"
-                result = await fetch_url_crawl4ai_api(
-                    article.url,
-                    api_url=api_url,
-                    timeout=cfg.fetch.timeout_seconds,
-                    retries=cfg.fetch.retries,
-                    user_agent=cfg.fetch.user_agent,
-                    stealth=cfg.fetch.crawl4ai_stealth,
-                    delay=cfg.fetch.crawl4ai_delay,
-                    simulate_user=cfg.fetch.crawl4ai_simulate_user,
-                    magic=cfg.fetch.crawl4ai_magic,
-                )
-            else:
-                backend_type = "crawl4ai_local"
-                result = await fetch_url_crawl4ai(
-                    article.url,
-                    timeout=cfg.fetch.timeout_seconds,
-                    retries=cfg.fetch.retries,
-                    user_agent=cfg.fetch.user_agent,
-                    stealth=cfg.fetch.crawl4ai_stealth,
-                    delay=cfg.fetch.crawl4ai_delay,
-                    simulate_user=cfg.fetch.crawl4ai_simulate_user,
-                    magic=cfg.fetch.crawl4ai_magic,
-                )
+        result = await fetch_url_crawl4ai_api(
+            article.url,
+            api_url=api_url,
+            timeout=cfg.fetch.timeout_seconds,
+            retries=cfg.fetch.retries,
+            user_agent=cfg.fetch.user_agent,
+            stealth=cfg.fetch.crawl4ai_stealth,
+            delay=cfg.fetch.crawl4ai_delay,
+            simulate_user=cfg.fetch.crawl4ai_simulate_user,
+            magic=cfg.fetch.crawl4ai_magic,
+        )
 
         text = result.text
         if text and _is_placeholder_text(text):
@@ -742,7 +552,7 @@ async def _fetch_and_extract_crawl4ai_async(
 
         if text:
             entry.extracted_txt.write_text(text, encoding="utf-8")
-            stats.crawl4ai_success += 1
+            stats.api_success += 1
             await _advance_progress()
             return ExtractedArticle(article=article, text=text, error=None)
 
@@ -750,48 +560,38 @@ async def _fetch_and_extract_crawl4ai_async(
         if result.error:
             # Network/protocol error during fetch
             error_category = _categorize_error(result.error, result.status_code)
-            stats.crawl4ai_failed += 1
+            stats.api_failed += 1
             log_event(
                 logger,
                 "Fetch failed",
                 event="fetch_failed",
                 url=article.url,
                 title=article.title,
-                backend="crawl4ai",
+                backend="crawl4ai_api",
                 error=result.error,
                 status_code=result.status_code,
                 error_category=error_category,
             )
         else:
             # Fetch succeeded but extraction produced empty content
-            # Note: crawl4ai returns pre-extracted markdown/text, not HTML
+            # Note: Crawl4AI returns pre-extracted markdown/text
             # When text is empty but no error, it means extraction failed
             markdown_size = 0  # No markdown content was extracted
-            stats.crawl4ai_failed += 1
+            stats.api_failed += 1
             log_event(
                 logger,
                 "Extract failed",
                 event="extract_failed",
                 url=article.url,
                 title=article.title,
-                backend="crawl4ai",
+                backend="crawl4ai_api",
                 error="Empty extraction result",
                 status_code=result.status_code,
                 markdown_size=markdown_size,
                 extraction_methods=["crawl4ai"],
             )
-            # Don't fall back for extraction failures (fetch succeeded, content was empty)
             await _advance_progress()
             return ExtractedArticle(article=article, text=None, error="Empty extraction result")
-
-        # Fetch failed - check if fallback is enabled
-        if cfg.fetch.fallback_to_httpx:
-            stats.crawl4ai_fallback_used += 1
-            extracted = await asyncio.to_thread(
-                _fetch_single_httpx, article, articles_dir, cfg, stats, logger
-            )
-            await _advance_progress()
-            return extracted
 
         await _advance_progress()
         return ExtractedArticle(article=article, text=None, error=result.error)
@@ -803,192 +603,17 @@ async def _fetch_and_extract_crawl4ai_async(
 def _render_fetch_stats(stats: FetchStats, console: Console) -> None:
     """Display fetch statistics to the console.
 
-    Prints summary statistics for total, success, failed, and cache hits,
-    broken down by backend (crawl4ai, httpx).
+    Prints summary statistics for total, success, failed, and cache hits.
 
     Args:
         stats: Fetch statistics to display
         console: Rich console for output
     """
-    failed = stats.crawl4ai_failed + stats.httpx_failed
-    success = stats.crawl4ai_success + stats.httpx_success
     console.print(
         "[bold]Fetch summary[/bold]: "
-        f"total={stats.total}, success={success}, failed={failed}, cache_hits={stats.cache_hits}"
+        f"total={stats.total}, success={stats.api_success}, failed={stats.api_failed}, "
+        f"cache_hits={stats.cache_hits}"
     )
-    if stats.crawl4ai_success or stats.crawl4ai_failed:
-        console.print(
-            "[bold]Crawl4AI[/bold]: "
-            f"success={stats.crawl4ai_success}, failed={stats.crawl4ai_failed}, "
-            f"fallback_used={stats.crawl4ai_fallback_used}"
-        )
-    if stats.httpx_success or stats.httpx_failed:
-        console.print(
-            f"[bold]httpx[/bold]: success={stats.httpx_success}, failed={stats.httpx_failed}"
-        )
-    if stats.curlcffi_success or stats.curlcffi_failed:
-        console.print(
-            f"[bold]curl_cffi[/bold]: success={stats.curlcffi_success}, failed={stats.curlcffi_failed}, "
-            f"fallback_used={stats.curlcffi_fallback_used}"
-        )
-
-
-def _fetch_and_extract_curlcffi(
-    articles,
-    articles_dir: Path,
-    cfg: AppConfig,
-    stats: FetchStats,
-    logger,
-    progress: Progress | None = None,
-    fetch_task: int | None = None,
-) -> list[ExtractedArticle]:
-    """Fetch and extract using curl_cffi backend (sequential processing).
-
-    Uses curl_cffi with browser TLS fingerprint impersonation to bypass
-    Cloudflare and other bot protection systems.
-
-    Args:
-        articles: List of Article objects to fetch
-        articles_dir: Articles directory for storing fetched content
-        cfg: Application configuration
-        stats: Statistics object to update
-        logger: Logger for events
-        progress: Optional Rich progress bar
-        fetch_task: Task ID for progress updates
-
-    Returns:
-        List of ExtractedArticle objects
-    """
-    extracted: list[ExtractedArticle] = []
-    for article in articles:
-        extracted.append(_fetch_single_curlcffi(article, articles_dir, cfg, stats, logger))
-        if progress and fetch_task is not None:
-            progress.advance(fetch_task, 1)
-    return extracted
-
-
-def _fetch_single_curlcffi(
-    article,
-    articles_dir: Path,
-    cfg: AppConfig,
-    stats: FetchStats,
-    logger,
-) -> ExtractedArticle:
-    """Fetch a single article using curl_cffi and extract content.
-
-    Checks for cached text first, then cached HTML, then fetches
-    fresh content if needed. Extracts text from HTML using the
-    configured extraction chain.
-
-    Args:
-        article: Article to fetch
-        articles_dir: Articles directory for storing fetched content
-        cfg: Application configuration
-        stats: Statistics object to update
-        logger: Logger for events
-
-    Returns:
-        ExtractedArticle with text or error populated
-    """
-    entry = EntryManager(articles_dir, article)
-    entry.ensure_folder()
-
-    # Check for cached extracted text (fastest path)
-    if entry.extracted_txt.exists() and EntryManager.is_entry_valid(
-        entry.folder, cfg.cache.ttl_days
-    ):
-        text = entry.extracted_txt.read_text(encoding="utf-8")
-        stats.cache_hits += 1
-        log_event(
-            logger,
-            "Cache hit",
-            event="cache_hit",
-            url=article.url,
-            title=article.title,
-            cache_type="extracted_txt",
-        )
-        return ExtractedArticle(article=article, text=text)
-
-    # Check for cached HTML
-    if entry.fetched_html.exists() and EntryManager.is_entry_valid(
-        entry.folder, cfg.cache.ttl_days
-    ):
-        html = entry.fetched_html.read_text(encoding="utf-8", errors="ignore")
-    else:
-        log_event(
-            logger,
-            "Fetch start",
-            event="fetch_start",
-            url=article.url,
-            title=article.title,
-            backend="curl_cffi",
-        )
-        result = fetch_url_curlcffi(
-            article.url,
-            timeout=cfg.fetch.timeout_seconds,
-            retries=cfg.fetch.retries,
-            user_agent=cfg.fetch.user_agent,
-            trust_env=cfg.fetch.trust_env,
-        )
-        if result.text:
-            html = result.text
-            entry.fetched_html.write_text(html, encoding="utf-8")
-        else:
-            # Fallback to httpx if configured
-            if cfg.fetch.fallback_to_httpx:
-                stats.curlcffi_fallback_used += 1
-                log_event(
-                    logger,
-                    "Fallback to httpx",
-                    event="fallback",
-                    url=article.url,
-                    title=article.title,
-                    from_backend="curl_cffi",
-                    to_backend="httpx",
-                )
-                return _fetch_single_httpx(article, articles_dir, cfg, stats, logger)
-            error_category = _categorize_error(result.error, result.status_code)
-            stats.curlcffi_failed += 1
-            log_event(
-                logger,
-                "Fetch failed",
-                event="fetch_failed",
-                url=article.url,
-                title=article.title,
-                backend="curl_cffi",
-                error=result.error,
-                status_code=result.status_code,
-                error_category=error_category,
-            )
-            return ExtractedArticle(article=article, text=None, error=result.error)
-
-    text = extract_text(html, cfg.extract.primary, cfg.extract.fallback)
-    if text and _is_placeholder_text(text):
-        text = None
-    if text:
-        entry.extracted_txt.write_text(text, encoding="utf-8")
-        stats.curlcffi_success += 1
-        log_event(
-            logger,
-            "Extract success",
-            event="extract_success",
-            url=article.url,
-            title=article.title,
-        )
-        return ExtractedArticle(article=article, text=text, error=None)
-    html_size = len(html) if html else 0
-    stats.curlcffi_failed += 1
-    log_event(
-        logger,
-        "Extract failed",
-        event="extract_failed",
-        url=article.url,
-        title=article.title,
-        error="Empty extraction result",
-        html_size=html_size,
-        extraction_methods=[cfg.extract.primary] + cfg.extract.fallback,
-    )
-    return ExtractedArticle(article=article, text=None, error="Empty extraction result")
 
 
 def _is_placeholder_text(text: str) -> bool:
@@ -1096,7 +721,7 @@ def _is_cache_valid(path: Path, cfg: AppConfig) -> bool:
 #         url: The URL being cached
 #         path: Path to the cache file
 #         kind: Type of content ("html" or "txt")
-#         source: Source of content ("cache", "httpx", "crawl4ai", "extract")
+#         source: Source of content ("cache", "crawl4ai_api", "extract")
 #         status_code: HTTP status code if applicable
 #         error: Error message if applicable
 #     """

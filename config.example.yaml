@@ -6,9 +6,6 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: crawl4ai  # Options: httpx, crawl4ai (JS rendering), curl_cffi (bypasses Cloudflare)
-  fallback_to_httpx: true  # Keep fallback for static sites
-  crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true
@@ -18,6 +15,8 @@ fetch:
   crawl4ai_delay: 2.0  # Delay before returning HTML (allows challenges to complete)
   crawl4ai_simulate_user: true  # Simulate user behavior for anti-bot
   crawl4ai_magic: true  # Enable anti-detection "magic" mode
+  # Remote API configuration (REQUIRED - set CRAWL4AI_API_URL environment variable)
+  crawl4ai_api_url: null  # Uses CRAWL4AI_API_URL from environment
 extract:
   primary: trafilatura
   fallback: [readability, bs4]
