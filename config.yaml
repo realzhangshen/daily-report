@@ -6,13 +6,21 @@ provider:
   # api_key: ""  # optional inline override
   trust_env: true
 fetch:
-  backend: crawl4ai  # Changed from httpx - supports JS rendering
+  backend: curl_cffi  # Options: httpx, crawl4ai, curl_cffi (bypasses Cloudflare)
   fallback_to_httpx: true  # Keep fallback for static sites
   crawl4ai_concurrency: 4
   timeout_seconds: 20
   retries: 2
   trust_env: true
   user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+  # Anti-bot detection options (helps with Cloudflare-protected sites like Product Hunt)
+  crawl4ai_stealth: true  # Enable stealth mode to bypass bot detection
+  crawl4ai_delay: 2.0  # Delay before returning HTML (allows challenges to complete)
+  crawl4ai_simulate_user: true  # Simulate user behavior for anti-bot
+  crawl4ai_magic: true  # Enable anti-detection "magic" mode
+  # Remote API configuration (set to use API instead of local library)
+  # Use environment variable CRAWL4AI_API_URL instead of hardcoding
+  crawl4ai_api_url: null
 extract:
   primary: trafilatura
   fallback: [readability, bs4]
@@ -42,10 +50,10 @@ logging:
   llm_log_file: llm.jsonl
 langfuse:
   enabled: true
-  # Keys from environment: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+  # Keys from environment: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
   public_key: null
   secret_key: null
-  host: http://localhost:3000
+  host: null
   environment: development
   release: v0.1.0
   redaction: redact_urls_authors

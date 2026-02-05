@@ -36,7 +36,8 @@ from .config import AppConfig, get_api_key
 from .dedup import dedup_articles
 from .entry_manager import EntryManager
 from .extractor import extract_text
-from .fetcher import fetch_url, fetch_url_crawl4ai, fetch_url_curlcffi
+from .config import get_crawl4ai_api_url
+from .fetcher import fetch_url, fetch_url_crawl4ai, fetch_url_crawl4ai_api, fetch_url_curlcffi
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
@@ -706,16 +707,34 @@ async def _fetch_and_extract_crawl4ai_async(
                 title=article.title,
                 backend="crawl4ai",
             )
-            result = await fetch_url_crawl4ai(
-                article.url,
-                timeout=cfg.fetch.timeout_seconds,
-                retries=cfg.fetch.retries,
-                user_agent=cfg.fetch.user_agent,
-                stealth=cfg.fetch.crawl4ai_stealth,
-                delay=cfg.fetch.crawl4ai_delay,
-                simulate_user=cfg.fetch.crawl4ai_simulate_user,
-                magic=cfg.fetch.crawl4ai_magic,
-            )
+
+            # Use remote API if configured, otherwise use local library
+            api_url = get_crawl4ai_api_url(cfg.fetch)
+            if api_url:
+                backend_type = "crawl4ai_api"
+                result = await fetch_url_crawl4ai_api(
+                    article.url,
+                    api_url=api_url,
+                    timeout=cfg.fetch.timeout_seconds,
+                    retries=cfg.fetch.retries,
+                    user_agent=cfg.fetch.user_agent,
+                    stealth=cfg.fetch.crawl4ai_stealth,
+                    delay=cfg.fetch.crawl4ai_delay,
+                    simulate_user=cfg.fetch.crawl4ai_simulate_user,
+                    magic=cfg.fetch.crawl4ai_magic,
+                )
+            else:
+                backend_type = "crawl4ai_local"
+                result = await fetch_url_crawl4ai(
+                    article.url,
+                    timeout=cfg.fetch.timeout_seconds,
+                    retries=cfg.fetch.retries,
+                    user_agent=cfg.fetch.user_agent,
+                    stealth=cfg.fetch.crawl4ai_stealth,
+                    delay=cfg.fetch.crawl4ai_delay,
+                    simulate_user=cfg.fetch.crawl4ai_simulate_user,
+                    magic=cfg.fetch.crawl4ai_magic,
+                )
 
         text = result.text
         if text and _is_placeholder_text(text):

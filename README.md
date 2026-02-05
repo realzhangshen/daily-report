@@ -84,6 +84,8 @@ fetch:
   retries: 2
   trust_env: true
   user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+  # Remote Crawl4AI API (optional - use environment variable for sensitive URLs)
+  crawl4ai_api_url: null  # Uses CRAWL4AI_API_URL from environment
 extract:
   primary: trafilatura
   fallback: [readability, bs4]
@@ -133,12 +135,14 @@ This project can emit traces/spans to Langfuse to help iterate on prompts
 and workflow steps. Enable tracing in config and set the appropriate Langfuse
 environment variables (or inline config).
 
+**IMPORTANT:** For self-hosted Langfuse, use environment variables instead of hardcoding sensitive URLs in config.yaml.
+
 Example environment variables:
 
 ```bash
 export LANGFUSE_PUBLIC_KEY="pk_..."
 export LANGFUSE_SECRET_KEY="sk_..."
-export LANGFUSE_HOST="https://cloud.langfuse.com"
+export LANGFUSE_HOST="https://langfuse.your-domain.com"
 # export LANGFUSE_ENVIRONMENT="local"
 # export LANGFUSE_RELEASE="daily-feed"
 ```
@@ -148,5 +152,6 @@ Enable in config:
 ```yaml
 langfuse:
   enabled: true
+  host: null  # Uses LANGFUSE_HOST from environment
   environment: daily-feed
 ```

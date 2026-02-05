@@ -175,6 +175,127 @@ async def fetch_url_crawl4ai(
     return FetchResult(url=url, status_code=None, text=None, error=last_error)
 
 
+async def fetch_url_crawl4ai_api(
+    url: str,
+    api_url: str,
+    timeout: float,
+    retries: int,
+    user_agent: str | None = None,
+    stealth: bool = True,
+    delay: float = 2.0,
+    simulate_user: bool = True,
+    magic: bool = True,
+) -> FetchResult:
+    """Fetch a URL using remote Crawl4AI API.
+
+    Makes HTTP requests to a remote Crawl4AI service instead of using
+    the local Python library. This allows running the crawler as a
+    separate service.
+
+    Args:
+        url: The URL to fetch
+        api_url: The base URL of the remote Crawl4AI API service
+        timeout: Page timeout in seconds
+        retries: Number of retry attempts after initial failure
+        user_agent: Custom user agent string (overrides default)
+        stealth: Enable stealth mode to bypass bot detection
+        delay: Delay before returning HTML (allows challenges to complete)
+        simulate_user: Simulate user behavior for anti-bot
+        magic: Enable anti-detection "magic" mode
+
+    Returns:
+        FetchResult with markdown text on success or error message on failure
+    """
+    import json
+
+    # Ensure api_url doesn't have trailing slash
+    api_url = api_url.rstrip("/")
+    endpoint = f"{api_url}/crawl"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    payload = {
+        "url": url,
+        "timeout": int(timeout * 1000),  # Convert to milliseconds
+        "delay_before_return_html": delay,
+        "simulate_user": simulate_user,
+        "magic": magic,
+        "stealth": stealth,
+    }
+
+    if user_agent:
+        payload["user_agent"] = user_agent
+
+    last_error: str | None = None
+
+    for attempt in range(retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    endpoint,
+                    json=payload,
+                    headers=headers,
+                    timeout=timeout,
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+
+                    # Check for success field in response
+                    if not data.get("success", True):
+                        error_msg = data.get("error", "Unknown API error")
+                        last_error = f"Crawl4AI API Error: {error_msg}"
+                        if attempt < retries:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+
+                    # Extract markdown from response
+                    text = None
+                    if "markdown" in data:
+                        markdown = data["markdown"]
+                        if hasattr(markdown, "raw_markdown"):
+                            text = markdown.raw_markdown
+                        elif isinstance(markdown, str):
+                            text = markdown
+                        else:
+                            text = str(markdown)
+                    elif "html" in data:
+                        # Fallback to HTML if markdown not available
+                        text = data["html"]
+
+                    if text and text.strip():
+                        status_code = data.get("status_code", 200)
+                        return FetchResult(url=url, status_code=status_code, text=text, error=None)
+                    else:
+                        last_error = "Crawl4AI API Error: empty response"
+                        if attempt < retries:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+                else:
+                    last_error = f"Crawl4AI API HTTP Error: {resp.status_code} {resp.text}"
+                    if attempt < retries:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+
+        except httpx.TimeoutException as exc:
+            last_error = f"TimeoutError: {exc}"
+            if attempt < retries:
+                await asyncio.sleep(0.5 * (attempt + 1))
+        except json.JSONDecodeError as exc:
+            last_error = f"JSONDecodeError: {exc} - Response: {resp.text[:200] if 'resp' in locals() else 'N/A'}"
+            if attempt < retries:
+                await asyncio.sleep(0.5 * (attempt + 1))
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"{type(exc).__name__}: {exc}"
+            if attempt < retries:
+                await asyncio.sleep(0.5 * (attempt + 1))
+
+    return FetchResult(url=url, status_code=None, text=None, error=last_error)
+
+
 def fetch_url_curlcffi(
     url: str,
     timeout: float,

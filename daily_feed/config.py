@@ -41,6 +41,7 @@ class FetchConfig:
         crawl4ai_delay: Delay before returning HTML (allows challenges to complete)
         crawl4ai_simulate_user: Simulate user behavior for anti-bot
         crawl4ai_magic: Enable anti-detection "magic" mode
+        crawl4ai_api_url: Remote Crawl4AI API URL (if set, uses API instead of local library)
     """
 
     backend: str = "httpx"
@@ -59,6 +60,8 @@ class FetchConfig:
     crawl4ai_delay: float = 2.0
     crawl4ai_simulate_user: bool = True
     crawl4ai_magic: bool = True
+    # Remote API configuration
+    crawl4ai_api_url: str | None = None
 
 
 @dataclass
@@ -284,6 +287,11 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "retries": cfg.fetch.retries,
             "trust_env": cfg.fetch.trust_env,
             "user_agent": cfg.fetch.user_agent,
+            "crawl4ai_stealth": cfg.fetch.crawl4ai_stealth,
+            "crawl4ai_delay": cfg.fetch.crawl4ai_delay,
+            "crawl4ai_simulate_user": cfg.fetch.crawl4ai_simulate_user,
+            "crawl4ai_magic": cfg.fetch.crawl4ai_magic,
+            "crawl4ai_api_url": cfg.fetch.crawl4ai_api_url,
         },
         "extract": {
             "primary": cfg.extract.primary,
@@ -359,3 +367,17 @@ def get_api_key(cfg: ProviderConfig) -> str | None:
     if cfg.api_key:
         return cfg.api_key
     return os.getenv(cfg.google_api_key_env)
+
+
+def get_crawl4ai_api_url(cfg: FetchConfig) -> str | None:
+    """Get Crawl4AI API URL from inline config or environment variable."""
+    if cfg.crawl4ai_api_url:
+        return cfg.crawl4ai_api_url
+    return os.getenv("CRAWL4AI_API_URL")
+
+
+def get_langfuse_host(cfg: LangfuseConfig) -> str | None:
+    """Get Langfuse host from inline config or environment variable."""
+    if cfg.host:
+        return cfg.host
+    return os.getenv("LANGFUSE_HOST")
