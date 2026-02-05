@@ -39,6 +39,8 @@ class FetchConfig:
         crawl4ai_simulate_user: Simulate user behavior for anti-bot
         crawl4ai_magic: Enable anti-detection "magic" mode
         crawl4ai_api_url: Remote Crawl4AI API URL (required - uses environment variable if not set)
+        crawl4ai_api_username: HTTP Basic Auth username (optional, for nginx auth)
+        crawl4ai_api_password: HTTP Basic Auth password (optional, for nginx auth)
     """
 
     timeout_seconds: float = 20.0
@@ -56,6 +58,8 @@ class FetchConfig:
     crawl4ai_magic: bool = True
     # Remote API configuration
     crawl4ai_api_url: str | None = None
+    crawl4ai_api_username: str | None = None
+    crawl4ai_api_password: str | None = None
 
 
 @dataclass
@@ -283,6 +287,8 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "crawl4ai_simulate_user": cfg.fetch.crawl4ai_simulate_user,
             "crawl4ai_magic": cfg.fetch.crawl4ai_magic,
             "crawl4ai_api_url": cfg.fetch.crawl4ai_api_url,
+            "crawl4ai_api_username": cfg.fetch.crawl4ai_api_username,
+            "crawl4ai_api_password": cfg.fetch.crawl4ai_api_password,
         },
         "extract": {
             "primary": cfg.extract.primary,
@@ -372,6 +378,18 @@ def get_crawl4ai_api_url(cfg: FetchConfig) -> str | None:
     if cfg.crawl4ai_api_url:
         return cfg.crawl4ai_api_url
     return os.getenv("CRAWL4AI_API_URL")
+
+
+def get_crawl4ai_api_auth(cfg: FetchConfig) -> tuple[str, str] | None:
+    """Get Crawl4AI API Basic Auth credentials from config or environment variables.
+
+    Returns (username, password) tuple if both are configured, None otherwise.
+    """
+    username = cfg.crawl4ai_api_username or os.getenv("CRAWL4AI_API_USERNAME")
+    password = cfg.crawl4ai_api_password or os.getenv("CRAWL4AI_API_PASSWORD")
+    if username and password:
+        return (username, password)
+    return None
 
 
 def get_langfuse_host(cfg: LangfuseConfig) -> str | None:

@@ -18,6 +18,9 @@ fetch:
   # Remote API configuration (set to use API instead of local library)
   # Use environment variable CRAWL4AI_API_URL instead of hardcoding
   crawl4ai_api_url: null
+  # HTTP Basic Auth (for nginx auth, use environment variables for sensitive data)
+  crawl4ai_api_username: null  # Uses CRAWL4AI_API_USERNAME from environment
+  crawl4ai_api_password: null  # Uses CRAWL4AI_API_PASSWORD from environment
 extract:
   primary: trafilatura
   fallback: [readability, bs4]

@@ -37,7 +37,7 @@ from .config import AppConfig, get_api_key
 from .dedup import dedup_articles
 from .entry_manager import EntryManager
 from .extractor import extract_text
-from .config import get_crawl4ai_api_url
+from .config import get_crawl4ai_api_url, get_crawl4ai_api_auth
 from .fetcher import fetch_url_crawl4ai_api
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .json_parser import parse_folo_json
@@ -497,6 +497,8 @@ async def _fetch_and_extract_api_async(
             "or configure crawl4ai_api_url in config."
         )
 
+    api_auth = get_crawl4ai_api_auth(cfg.fetch)
+
     progress_lock = asyncio.Lock()
 
     async def _advance_progress() -> None:
@@ -544,6 +546,7 @@ async def _fetch_and_extract_api_async(
             delay=cfg.fetch.crawl4ai_delay,
             simulate_user=cfg.fetch.crawl4ai_simulate_user,
             magic=cfg.fetch.crawl4ai_magic,
+            auth=api_auth,
         )
 
         text = result.text

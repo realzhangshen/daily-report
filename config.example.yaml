@@ -17,6 +17,9 @@ fetch:
   crawl4ai_magic: true  # Enable anti-detection "magic" mode
   # Remote API configuration (REQUIRED - set CRAWL4AI_API_URL environment variable)
   crawl4ai_api_url: null  # Uses CRAWL4AI_API_URL from environment
+  # HTTP Basic Auth (for nginx auth, use environment variables for sensitive data)
+  crawl4ai_api_username: null  # Uses CRAWL4AI_API_USERNAME from environment
+  crawl4ai_api_password: null  # Uses CRAWL4AI_API_PASSWORD from environment
 extract:
   primary: trafilatura
   fallback: [readability, bs4]

@@ -44,6 +44,7 @@ async def fetch_url_crawl4ai_api(
     delay: float = 2.0,
     simulate_user: bool = True,
     magic: bool = True,
+    auth: tuple[str, str] | None = None,
 ) -> FetchResult:
     """Fetch a URL using remote Crawl4AI API.
 
@@ -60,11 +61,13 @@ async def fetch_url_crawl4ai_api(
         delay: Delay before returning HTML (allows challenges to complete)
         simulate_user: Simulate user behavior for anti-bot
         magic: Enable anti-detection "magic" mode
+        auth: Optional (username, password) tuple for HTTP Basic Auth
 
     Returns:
         FetchResult with markdown text on success or error message on failure
     """
     import json
+    import base64
 
     # Ensure api_url doesn't have trailing slash
     api_url = api_url.rstrip("/")
@@ -74,6 +77,12 @@ async def fetch_url_crawl4ai_api(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+
+    # Add Basic Auth header if credentials provided
+    if auth:
+        username, password = auth
+        credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+        headers["Authorization"] = f"Basic {credentials}"
 
     payload = {
         "url": url,
