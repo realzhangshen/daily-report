@@ -32,7 +32,7 @@ from rich.progress import (
 )
 
 from .config import AppConfig, get_api_key
-from .cache import CacheIndex
+# from .cache import CacheIndex  # Deprecated: per-entry cache replaces cache directory
 from .dedup import dedup_articles
 from .entry_manager import EntryManager
 from .extractor import extract_text
@@ -413,7 +413,7 @@ def _fetch_articles(
     articles,
     articles_dir: Path,
     cfg: AppConfig,
-    cache_index: CacheIndex | None,
+    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
@@ -427,7 +427,6 @@ def _fetch_articles(
         articles: List of Article objects to fetch
         articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
-        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -439,11 +438,11 @@ def _fetch_articles(
     backend = (cfg.fetch.backend or "httpx").lower()
     if backend == "crawl4ai":
         extracted = _fetch_and_extract_crawl4ai(
-            articles, articles_dir, cfg, stats, cache_index, logger, progress, fetch_task
+            articles, articles_dir, cfg, stats, logger, progress, fetch_task
         )
         return extracted, stats
     extracted = _fetch_and_extract_httpx(
-        articles, articles_dir, cfg, stats, cache_index, logger, progress, fetch_task
+        articles, articles_dir, cfg, stats, logger, progress, fetch_task
     )
     return extracted, stats
 
@@ -453,7 +452,7 @@ def _fetch_and_extract_httpx(
     articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
-    cache_index: CacheIndex | None,
+    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
@@ -468,7 +467,6 @@ def _fetch_and_extract_httpx(
         articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -600,7 +598,7 @@ def _fetch_and_extract_crawl4ai(
     articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
-    cache_index: CacheIndex | None,
+    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
@@ -616,7 +614,6 @@ def _fetch_and_extract_crawl4ai(
         articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -626,7 +623,7 @@ def _fetch_and_extract_crawl4ai(
     """
     return asyncio.run(
         _fetch_and_extract_crawl4ai_async(
-            articles, articles_dir, cfg, stats, cache_index, logger, progress, fetch_task
+            articles, articles_dir, cfg, stats, logger, progress, fetch_task
         )
     )
 
@@ -636,7 +633,7 @@ async def _fetch_and_extract_crawl4ai_async(
     articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
-    cache_index: CacheIndex | None,
+    # cache_index: CacheIndex | None,  # Deprecated: per-entry cache replaces cache directory
     logger,
     progress: Progress | None = None,
     fetch_task: int | None = None,
@@ -651,7 +648,6 @@ async def _fetch_and_extract_crawl4ai_async(
         articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -835,23 +831,24 @@ def _build_provider(cfg: AppConfig, llm_logger):
     raise ValueError(f"Unsupported provider: {cfg.provider.name}")
 
 
-def _build_cache_dir(run_output_dir: Path, output_dir: Path, cfg: AppConfig) -> Path:
-    """Determine the cache directory based on cache mode.
-
-    Args:
-        run_output_dir: The current run's output directory
-        output_dir: Base output directory
-        cfg: Application configuration
-
-    Returns:
-        Path to the cache directory
-    """
-    mode = (cfg.cache.mode or "run").lower()
-    if mode == "shared":
-        if cfg.cache.shared_dir:
-            return Path(cfg.cache.shared_dir)
-        return output_dir / "cache_shared"
-    return run_output_dir / "cache"
+# Deprecated: Per-entry cache replaces cache directory approach
+# def _build_cache_dir(run_output_dir: Path, output_dir: Path, cfg: AppConfig) -> Path:
+#     """Determine the cache directory based on cache mode.
+#
+#     Args:
+#         run_output_dir: The current run's output directory
+#         output_dir: Base output directory
+#         cfg: Application configuration
+#
+#     Returns:
+#         Path to the cache directory
+#     """
+#     mode = (cfg.cache.mode or "run").lower()
+#     if mode == "shared":
+#         if cfg.cache.shared_dir:
+#             return Path(cfg.cache.shared_dir)
+#         return output_dir / "cache_shared"
+#     return run_output_dir / "cache"
 
 
 def _is_cache_valid(path: Path, cfg: AppConfig) -> bool:
@@ -872,40 +869,41 @@ def _is_cache_valid(path: Path, cfg: AppConfig) -> bool:
     return age_seconds <= cfg.cache.ttl_days * 86400
 
 
-def _append_cache_index(
-    cache_index: CacheIndex | None,
-    url: str,
-    path: Path,
-    kind: str,
-    source: str,
-    status_code: int | None,
-    error: str | None,
-) -> None:
-    """Append an entry to the cache index if enabled.
-
-    Args:
-        cache_index: CacheIndex instance (may be None)
-        url: The URL being cached
-        path: Path to the cache file
-        kind: Type of content ("html" or "txt")
-        source: Source of content ("cache", "httpx", "crawl4ai", "extract")
-        status_code: HTTP status code if applicable
-        error: Error message if applicable
-    """
-    if cache_index is None:
-        return
-    cache_index.append(
-        {
-            "url": url,
-            "hash": path.name.split(".")[0],
-            "kind": kind,
-            "path": str(path),
-            "source": source,
-            "status_code": status_code,
-            "error": error,
-            "content_len": path.stat().st_size if path.exists() else None,
-        }
-    )
+# Deprecated: Per-entry cache replaces cache directory approach
+# def _append_cache_index(
+#     cache_index: CacheIndex | None,
+#     url: str,
+#     path: Path,
+#     kind: str,
+#     source: str,
+#     status_code: int | None,
+#     error: str | None,
+# ) -> None:
+#     """Append an entry to the cache index if enabled.
+#
+#     Args:
+#         cache_index: CacheIndex instance (may be None)
+#         url: The URL being cached
+#         path: Path to the cache file
+#         kind: Type of content ("html" or "txt")
+#         source: Source of content ("cache", "httpx", "crawl4ai", "extract")
+#         status_code: HTTP status code if applicable
+#         error: Error message if applicable
+#     """
+#     if cache_index is None:
+#         return
+#     cache_index.append(
+#         {
+#             "url": url,
+#             "hash": path.name.split(".")[0],
+#             "kind": kind,
+#             "path": str(path),
+#             "source": source,
+#             "status_code": status_code,
+#             "error": error,
+#             "content_len": path.stat().st_size if path.exists() else None,
+#         }
+#     )
 
 
 def _build_run_output_dir(output_dir: Path, input_path: Path, cfg: AppConfig) -> Path:
