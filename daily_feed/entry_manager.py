@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Any
 
 from daily_feed.types import Article
 from daily_feed.types import ArticleSummary
+from daily_feed.logging_utils import JsonlFormatter
 
 
 def slugify(text: str) -> str:
@@ -205,3 +207,23 @@ class EntryManager:
 
         with open(self.llm_summary, "r", encoding="utf-8") as f:
             return json.load(f)
+
+    def get_llm_logger(self) -> logging.Logger | None:
+        """Get or create logger for this entry's LLM interactions.
+
+        Returns:
+            Logger instance, or None if folder doesn't exist
+        """
+        if not self.folder.exists():
+            return None
+
+        logger = logging.getLogger(f"daily_feed.entry.{self.folder.name}")
+        logger.handlers = []
+        logger.propagate = False
+        logger.setLevel(logging.INFO)
+
+        file_handler = logging.FileHandler(self.llm_debug, encoding="utf-8")
+        file_handler.setFormatter(JsonlFormatter())
+        logger.addHandler(file_handler)
+
+        return logger

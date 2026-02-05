@@ -135,3 +135,73 @@ def test_read_llm_summary_missing():
         manager = EntryManager(articles_dir, article)
 
         assert manager.read_llm_summary() is None
+
+
+def test_get_llm_logger_creates_logger():
+    """get_llm_logger should create logger with JSONL formatter"""
+    import logging
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+        manager.ensure_folder()
+
+        logger = manager.get_llm_logger()
+
+        assert logger is not None
+        assert logger.name == f"daily_feed.entry.{manager.folder.name}"
+        assert logger.level == logging.INFO
+        assert len(logger.handlers) == 1
+        assert isinstance(logger.handlers[0], logging.FileHandler)
+        assert logger.propagate is False
+
+
+def test_get_llm_logger_returns_none_if_no_folder():
+    """get_llm_logger should return None if folder doesn't exist"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+
+        # Don't create folder
+        logger = manager.get_llm_logger()
+
+        assert logger is None
+
+
+def test_llm_logger_writes_jsonl():
+    """LLM logger should write JSONL formatted logs"""
+    import json
+    import logging
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        articles_dir = Path(tmpdir)
+        article = Article(title="Test", site="Test", url="https://example.com/test")
+        manager = EntryManager(articles_dir, article)
+        manager.ensure_folder()
+
+        logger = manager.get_llm_logger()
+        assert logger is not None
+
+        # Log an event
+        logger.info("Test event", extra={"key": "value", "number": 123})
+
+        # Flush and close handler
+        for handler in logger.handlers:
+            handler.flush()
+            handler.close()
+
+        # Read log file
+        log_content = manager.llm_debug.read_text(encoding="utf-8")
+        lines = log_content.strip().split("\n")
+
+        assert len(lines) == 1
+
+        # Parse JSON line
+        log_entry = json.loads(lines[0])
+        assert log_entry["message"] == "Test event"
+        assert log_entry["key"] == "value"
+        assert log_entry["number"] == 123
+        assert "timestamp" in log_entry
+        assert log_entry["level"] == "INFO"
