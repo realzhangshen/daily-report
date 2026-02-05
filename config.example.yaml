@@ -50,8 +50,10 @@ langfuse:
   redaction: redact_urls_authors
   max_text_chars: 20000
 cache:
-  mode: run
-  shared_dir:
-  ttl_days:
-  write_index: true
-  index_filename: index.jsonl
+  mode: run  # Options: run, shared (shared still uses old structure)
+  ttl_days: null  # Cache TTL in days, null = no expiration
+  # Note: Cache is now organized as articles/{slug}-{hash}/
+  # with fetched.html, extracted.txt, llm_summary.json, llm_debug.jsonl
+  shared_dir: null
+  write_index: false
+  index_filename: "index.jsonl"
