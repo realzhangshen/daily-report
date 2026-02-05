@@ -166,6 +166,8 @@ def run_pipeline(
                 input_value={"count": len(extracted)},
             ):
                 for item in extracted:
+                    entry = EntryManager(articles_dir, item.article)
+
                     if not item.text:
                         summary_text = item.article.summary or ""
                         summaries.append(
@@ -177,15 +179,43 @@ def run_pipeline(
                             )
                         )
                         continue
-                    summary = provider.summarize_article(item.article, item.text)
-                    if summary.status == "parse_error":
+
+                    # Check for cached summary
+                    cached_summary = entry.read_llm_summary()
+                    if cached_summary and EntryManager.is_entry_valid(
+                        entry.folder, cfg.cache.ttl_days
+                    ):
+                        # Use cached summary
+                        summary = ArticleSummary(
+                            article=item.article,
+                            bullets=cached_summary.get("bullets", []),
+                            takeaway=cached_summary.get("takeaway", ""),
+                            topic=cached_summary.get("topic"),
+                            status=cached_summary.get("status", "ok"),
+                        )
                         log_event(
                             logger,
-                            "LLM parse error",
-                            event="llm_parse_error",
+                            "Summary cache hit",
+                            event="summary_cache_hit",
                             url=item.article.url,
                             title=item.article.title,
                         )
+                    else:
+                        # Generate new summary with per-entry logging
+                        entry_logger = entry.get_llm_logger()
+                        summary = provider.summarize_article(
+                            item.article, item.text, entry_logger=entry_logger
+                        )
+                        if summary.status == "parse_error":
+                            log_event(
+                                logger,
+                                "LLM parse error",
+                                event="llm_parse_error",
+                                url=item.article.url,
+                                title=item.article.title,
+                            )
+                        # Save summary to entry
+                        entry.write_llm_summary(summary)
                     summaries.append(summary)
 
             with start_span(
@@ -269,6 +299,8 @@ def run_pipeline(
                 input_value={"count": len(extracted)},
             ):
                 for item in extracted:
+                    entry = EntryManager(articles_dir, item.article)
+
                     if not item.text:
                         summary_text = item.article.summary or ""
                         summaries.append(
@@ -281,15 +313,43 @@ def run_pipeline(
                         )
                         progress.advance(summarize_task, 1)
                         continue
-                    summary = provider.summarize_article(item.article, item.text)
-                    if summary.status == "parse_error":
+
+                    # Check for cached summary
+                    cached_summary = entry.read_llm_summary()
+                    if cached_summary and EntryManager.is_entry_valid(
+                        entry.folder, cfg.cache.ttl_days
+                    ):
+                        # Use cached summary
+                        summary = ArticleSummary(
+                            article=item.article,
+                            bullets=cached_summary.get("bullets", []),
+                            takeaway=cached_summary.get("takeaway", ""),
+                            topic=cached_summary.get("topic"),
+                            status=cached_summary.get("status", "ok"),
+                        )
                         log_event(
                             logger,
-                            "LLM parse error",
-                            event="llm_parse_error",
+                            "Summary cache hit",
+                            event="summary_cache_hit",
                             url=item.article.url,
                             title=item.article.title,
                         )
+                    else:
+                        # Generate new summary with per-entry logging
+                        entry_logger = entry.get_llm_logger()
+                        summary = provider.summarize_article(
+                            item.article, item.text, entry_logger=entry_logger
+                        )
+                        if summary.status == "parse_error":
+                            log_event(
+                                logger,
+                                "LLM parse error",
+                                event="llm_parse_error",
+                                url=item.article.url,
+                                title=item.article.title,
+                            )
+                        # Save summary to entry
+                        entry.write_llm_summary(summary)
                     summaries.append(summary)
                     progress.advance(summarize_task, 1)
             progress.advance(stage_task, 1)
