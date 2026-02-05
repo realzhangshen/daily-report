@@ -36,7 +36,7 @@ from .cache import CacheIndex
 from .dedup import dedup_articles
 from .entry_manager import EntryManager
 from .extractor import extract_text
-from .fetcher import cache_path, fetch_url, fetch_url_crawl4ai
+from .fetcher import fetch_url, fetch_url_crawl4ai
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
@@ -332,26 +332,26 @@ def run_pipeline(
         return html_path
 
 
-def _fetch_and_extract(articles, cache_dir: Path, cfg: AppConfig):
+def _fetch_and_extract(articles, articles_dir: Path, cfg: AppConfig):
     """Convenience function to fetch and extract without progress tracking.
 
     Used by tests or other code that doesn't need the full pipeline.
 
     Args:
         articles: List of Article objects to fetch
-        cache_dir: Cache directory for storing fetched content
+        articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
 
     Returns:
         List of ExtractedArticle objects
     """
-    extracted, _stats = _fetch_articles(articles, cache_dir, cfg, None, None)
+    extracted, _stats = _fetch_articles(articles, articles_dir, cfg, None, None)
     return extracted
 
 
 def _fetch_articles(
     articles,
-    cache_dir: Path,
+    articles_dir: Path,
     cfg: AppConfig,
     cache_index: CacheIndex | None,
     logger,
@@ -365,9 +365,9 @@ def _fetch_articles(
 
     Args:
         articles: List of Article objects to fetch
-        cache_dir: Cache directory for storing fetched content
+        articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
-        cache_index: Optional cache index for logging
+        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -379,18 +379,18 @@ def _fetch_articles(
     backend = (cfg.fetch.backend or "httpx").lower()
     if backend == "crawl4ai":
         extracted = _fetch_and_extract_crawl4ai(
-            articles, cache_dir, cfg, stats, cache_index, logger, progress, fetch_task
+            articles, articles_dir, cfg, stats, cache_index, logger, progress, fetch_task
         )
         return extracted, stats
     extracted = _fetch_and_extract_httpx(
-        articles, cache_dir, cfg, stats, cache_index, logger, progress, fetch_task
+        articles, articles_dir, cfg, stats, cache_index, logger, progress, fetch_task
     )
     return extracted, stats
 
 
 def _fetch_and_extract_httpx(
     articles,
-    cache_dir: Path,
+    articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
     cache_index: CacheIndex | None,
@@ -405,10 +405,10 @@ def _fetch_and_extract_httpx(
 
     Args:
         articles: List of Article objects to fetch
-        cache_dir: Cache directory for storing fetched content
+        articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging
+        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -418,7 +418,7 @@ def _fetch_and_extract_httpx(
     """
     extracted: list[ExtractedArticle] = []
     for article in articles:
-        extracted.append(_fetch_single_httpx(article, cache_dir, cfg, stats, cache_index, logger))
+        extracted.append(_fetch_single_httpx(article, articles_dir, cfg, stats, logger))
         if progress and fetch_task is not None:
             progress.advance(fetch_task, 1)
     return extracted
@@ -426,10 +426,9 @@ def _fetch_and_extract_httpx(
 
 def _fetch_single_httpx(
     article,
-    cache_dir: Path,
+    articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
-    cache_index: CacheIndex | None,
     logger,
 ) -> ExtractedArticle:
     """Fetch a single article using httpx and extract content.
@@ -440,35 +439,38 @@ def _fetch_single_httpx(
 
     Args:
         article: Article to fetch
-        cache_dir: Cache directory
+        articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging
         logger: Logger for events
 
     Returns:
         ExtractedArticle with text or error populated
     """
-    html_cache = cache_path(cache_dir, article.url, "html")
-    text_cache = cache_path(cache_dir, article.url, "txt")
+    entry = EntryManager(articles_dir, article)
+    entry.ensure_folder()
 
     # Check for cached extracted text (fastest path)
-    if _is_cache_valid(text_cache, cfg):
-        text = text_cache.read_text(encoding="utf-8")
+    if entry.extracted_txt.exists() and EntryManager.is_entry_valid(
+        entry.folder, cfg.cache.ttl_days
+    ):
+        text = entry.extracted_txt.read_text(encoding="utf-8")
         stats.cache_hits += 1
-        _append_cache_index(
-            cache_index,
+        log_event(
+            logger,
+            "Cache hit",
+            event="cache_hit",
             url=article.url,
-            path=text_cache,
-            kind="txt",
-            source="cache",
-            status_code=None,
-            error=None,
+            title=article.title,
+            cache_type="extracted_txt",
         )
         return ExtractedArticle(article=article, text=text)
 
-    if _is_cache_valid(html_cache, cfg):
-        html = html_cache.read_text(encoding="utf-8", errors="ignore")
+    # Check for cached HTML
+    if entry.fetched_html.exists() and EntryManager.is_entry_valid(
+        entry.folder, cfg.cache.ttl_days
+    ):
+        html = entry.fetched_html.read_text(encoding="utf-8", errors="ignore")
     else:
         log_event(
             logger,
@@ -487,16 +489,7 @@ def _fetch_single_httpx(
         )
         if result.text:
             html = result.text
-            html_cache.write_text(html, encoding="utf-8")
-            _append_cache_index(
-                cache_index,
-                url=article.url,
-                path=html_cache,
-                kind="html",
-                source="httpx",
-                status_code=result.status_code,
-                error=None,
-            )
+            entry.fetched_html.write_text(html, encoding="utf-8")
         else:
             error_category = _categorize_error(result.error, result.status_code)
             stats.httpx_failed += 1
@@ -517,16 +510,7 @@ def _fetch_single_httpx(
     if text and _is_placeholder_text(text):
         text = None
     if text:
-        text_cache.write_text(text, encoding="utf-8")
-        _append_cache_index(
-            cache_index,
-            url=article.url,
-            path=text_cache,
-            kind="txt",
-            source="extract",
-            status_code=None,
-            error=None,
-        )
+        entry.extracted_txt.write_text(text, encoding="utf-8")
         stats.httpx_success += 1
         log_event(
             logger,
@@ -553,7 +537,7 @@ def _fetch_single_httpx(
 
 def _fetch_and_extract_crawl4ai(
     articles,
-    cache_dir: Path,
+    articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
     cache_index: CacheIndex | None,
@@ -569,10 +553,10 @@ def _fetch_and_extract_crawl4ai(
 
     Args:
         articles: List of Article objects to fetch
-        cache_dir: Cache directory for storing fetched content
+        articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging
+        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -582,14 +566,14 @@ def _fetch_and_extract_crawl4ai(
     """
     return asyncio.run(
         _fetch_and_extract_crawl4ai_async(
-            articles, cache_dir, cfg, stats, cache_index, logger, progress, fetch_task
+            articles, articles_dir, cfg, stats, cache_index, logger, progress, fetch_task
         )
     )
 
 
 async def _fetch_and_extract_crawl4ai_async(
     articles,
-    cache_dir: Path,
+    articles_dir: Path,
     cfg: AppConfig,
     stats: FetchStats,
     cache_index: CacheIndex | None,
@@ -604,10 +588,10 @@ async def _fetch_and_extract_crawl4ai_async(
 
     Args:
         articles: List of Article objects to fetch
-        cache_dir: Cache directory for storing fetched content
+        articles_dir: Articles directory for storing fetched content
         cfg: Application configuration
         stats: Statistics object to update
-        cache_index: Optional cache index for logging
+        cache_index: Optional cache index for logging (unused, kept for compatibility)
         logger: Logger for events
         progress: Optional Rich progress bar
         fetch_task: Task ID for progress updates
@@ -625,18 +609,22 @@ async def _fetch_and_extract_crawl4ai_async(
                 progress.advance(fetch_task, 1)
 
     async def _fetch_single(article) -> ExtractedArticle:
-        text_cache = cache_path(cache_dir, article.url, "txt")
-        if _is_cache_valid(text_cache, cfg):
-            text = text_cache.read_text(encoding="utf-8")
+        entry = EntryManager(articles_dir, article)
+        entry.ensure_folder()
+
+        # Check for cached extracted text (fastest path)
+        if entry.extracted_txt.exists() and EntryManager.is_entry_valid(
+            entry.folder, cfg.cache.ttl_days
+        ):
+            text = entry.extracted_txt.read_text(encoding="utf-8")
             stats.cache_hits += 1
-            _append_cache_index(
-                cache_index,
+            log_event(
+                logger,
+                "Cache hit",
+                event="cache_hit",
                 url=article.url,
-                path=text_cache,
-                kind="txt",
-                source="cache",
-                status_code=None,
-                error=None,
+                title=article.title,
+                cache_type="extracted_txt",
             )
             await _advance_progress()
             return ExtractedArticle(article=article, text=text)
@@ -661,16 +649,7 @@ async def _fetch_and_extract_crawl4ai_async(
             text = None
 
         if text:
-            text_cache.write_text(text, encoding="utf-8")
-            _append_cache_index(
-                cache_index,
-                url=article.url,
-                path=text_cache,
-                kind="txt",
-                source="crawl4ai",
-                status_code=result.status_code,
-                error=None,
-            )
+            entry.extracted_txt.write_text(text, encoding="utf-8")
             stats.crawl4ai_success += 1
             await _advance_progress()
             return ExtractedArticle(article=article, text=text, error=None)
@@ -717,7 +696,7 @@ async def _fetch_and_extract_crawl4ai_async(
         if cfg.fetch.fallback_to_httpx:
             stats.crawl4ai_fallback_used += 1
             extracted = await asyncio.to_thread(
-                _fetch_single_httpx, article, cache_dir, cfg, stats, cache_index, logger
+                _fetch_single_httpx, article, articles_dir, cfg, stats, logger
             )
             await _advance_progress()
             return extracted
