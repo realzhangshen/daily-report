@@ -8,7 +8,6 @@ a slug-based name and short hash for uniqueness.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import time
 from pathlib import Path
