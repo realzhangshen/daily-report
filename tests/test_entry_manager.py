@@ -5,8 +5,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from daily_feed.types import Article, ArticleSummary
-from daily_feed.entry_manager import EntryManager
+from daily_feed.core.types import Article, ArticleSummary
+from daily_feed.core.entry import EntryManager
 
 
 def test_entry_folder_naming():

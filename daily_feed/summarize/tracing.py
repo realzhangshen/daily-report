@@ -12,8 +12,8 @@ from contextvars import ContextVar
 import json
 from typing import Any, Iterator
 
-from .config import LangfuseConfig
-from .logging_utils import redact_text, truncate_text
+from ..config import LangfuseConfig
+from ..utils.logging import redact_text, truncate_text
 
 _TRACER = None
 _CFG: LangfuseConfig | None = None
