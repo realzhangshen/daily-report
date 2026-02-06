@@ -19,7 +19,7 @@ from typing import Any
 
 from rich.logging import RichHandler
 
-from .config import LoggingConfig
+from ..config import LoggingConfig
 
 
 _URL_RE = re.compile(r"https?://\\S+")
