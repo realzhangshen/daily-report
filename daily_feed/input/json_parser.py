@@ -13,7 +13,7 @@ from typing import Any
 
 from urllib.parse import urlparse
 
-from .types import Article
+from ..core.types import Article
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from .types import ArticleSummary
+from .core.types import ArticleSummary
 
 
 def _slugify(value: str) -> str:

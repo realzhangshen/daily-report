@@ -13,5 +13,5 @@ Example:
 __all__ = ["__version__", "parse_folo_json", "EntryManager", "slugify", "short_hash"]
 __version__ = "0.1.0"
 
-from .entry_manager import EntryManager, short_hash, slugify
-from .json_parser import parse_folo_json
+from .core.entry import EntryManager, short_hash, slugify
+from .input.json_parser import parse_folo_json

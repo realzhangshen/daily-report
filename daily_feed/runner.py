@@ -34,17 +34,17 @@ from rich.progress import (
 
 from .config import AppConfig, get_api_key
 # from .cache import CacheIndex  # Deprecated: per-entry cache replaces cache directory
-from .dedup import dedup_articles
-from .entry_manager import EntryManager
+from .core.dedup import dedup_articles
+from .core.entry import EntryManager
+from .core.types import ArticleSummary, ExtractedArticle
 from .extractor import extract_text
 from .config import get_crawl4ai_api_url, get_crawl4ai_api_auth
 from .fetcher import fetch_url_crawl4ai_api
 from .logging_utils import log_event, setup_llm_logger, setup_logging
-from .json_parser import parse_folo_json
+from .input.json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
 from .providers.gemini import GeminiProvider
 from .renderer import render_html, render_markdown
-from .types import ArticleSummary, ExtractedArticle
 
 
 def _categorize_error(error: str | None, status_code: int | None) -> str:

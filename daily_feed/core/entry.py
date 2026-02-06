@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from daily_feed.types import Article
-from daily_feed.types import ArticleSummary
+from daily_feed.core.types import Article
+from daily_feed.core.types import ArticleSummary
 from daily_feed.logging_utils import JsonlFormatter
 
 
