@@ -30,7 +30,7 @@ requires = ["setuptools>=68.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["daily_feed", "daily_feed.providers"]
+packages = ["daily_feed"]
 include-package-data = true
 
 [tool.setuptools.package-data]
