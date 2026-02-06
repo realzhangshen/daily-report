@@ -37,9 +37,9 @@ from .config import AppConfig, get_api_key
 from .core.dedup import dedup_articles
 from .core.entry import EntryManager
 from .core.types import ArticleSummary, ExtractedArticle
-from .extractor import extract_text
+from .fetch.extractor import extract_text
 from .config import get_crawl4ai_api_url, get_crawl4ai_api_auth
-from .fetcher import fetch_url_crawl4ai_api
+from .fetch.fetcher import fetch_url_crawl4ai_api
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .input.json_parser import parse_folo_json
 from .langfuse_utils import set_span_output, setup_langfuse, start_span
