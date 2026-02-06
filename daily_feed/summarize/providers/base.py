@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..core.types import Article, ArticleSummary
+from ...core.types import Article, ArticleSummary
 
 
 class Provider(ABC):

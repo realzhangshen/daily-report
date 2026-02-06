@@ -13,10 +13,10 @@ from typing import Any
 
 import httpx
 
-from ..config import LoggingConfig, ProviderConfig, SummaryConfig
-from ..logging_utils import log_event, redact_text, redact_value, truncate_text
-from ..langfuse_utils import record_span_error, set_span_output, start_span
-from ..core.types import Article, ArticleSummary
+from ...config import LoggingConfig, ProviderConfig, SummaryConfig
+from ...logging_utils import log_event, redact_text, redact_value, truncate_text
+from ..tracing import record_span_error, set_span_output, start_span
+from ...core.types import Article, ArticleSummary
 from .base import Provider
 
 

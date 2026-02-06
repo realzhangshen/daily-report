@@ -42,8 +42,8 @@ from .config import get_crawl4ai_api_url, get_crawl4ai_api_auth
 from .fetch.fetcher import fetch_url_crawl4ai_api
 from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .input.json_parser import parse_folo_json
-from .langfuse_utils import set_span_output, setup_langfuse, start_span
-from .providers.gemini import GeminiProvider
+from .summarize.tracing import set_span_output, setup_langfuse, start_span
+from .summarize.providers.gemini import GeminiProvider
 from .renderer import render_html, render_markdown
 
 

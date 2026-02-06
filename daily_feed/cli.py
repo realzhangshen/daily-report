@@ -15,7 +15,7 @@ from rich.console import Console
 
 from .config import load_config
 from .runner import run_pipeline
-from .langfuse_utils import flush
+from .summarize.tracing import flush
 
 try:
     from dotenv import load_dotenv
