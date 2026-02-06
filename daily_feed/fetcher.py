@@ -98,29 +98,44 @@ async def fetch_url_crawl4ai_api(
 
     last_error: str | None = None
 
+    # Configure separate timeouts: connect is short, read is long (for slow crawls)
+    # httpx.Timeout(connect=5, read=60, write=10, pool=10)
+    timeout_config = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
+
     for attempt in range(retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout_config, trust_env=True) as client:
                 resp = await client.post(
                     endpoint,
                     json=payload,
                     headers=headers,
-                    timeout=timeout,
+                    timeout=timeout_config,
                 )
 
                 if resp.status_code == 200:
                     data = resp.json()
 
-                    # API returns a list when using 'urls'
-                    if isinstance(data, list) and len(data) > 0:
-                        data = data[0]  # Get first (and only) result
+                    # API returns a dict with 'results' array when using 'urls'
+                    # Extract the first result from the results array
+                    if isinstance(data, dict) and "results" in data:
+                        results = data["results"]
+                        if isinstance(results, list) and len(results) > 0:
+                            data = results[0]  # Get first (and only) result
+                        else:
+                            last_error = "Crawl4AI API Error: empty results array"
+                            if attempt < retries:
+                                await asyncio.sleep(0.5 * (attempt + 1))
+                                continue
+                    # Handle case where API returns a list directly (unlikely)
+                    elif isinstance(data, list) and len(data) > 0:
+                        data = data[0]
                     elif isinstance(data, list):
-                        last_error = "Crawl4AI API Error: empty result list"
+                        last_error = "Crawl4AI API Error: empty response list"
                         if attempt < retries:
                             await asyncio.sleep(0.5 * (attempt + 1))
                             continue
 
-                    # Check for success field in response
+                    # Check for success field in response (after extracting result)
                     if not data.get("success", True):
                         error_msg = data.get("error", "Unknown API error")
                         last_error = f"Crawl4AI API Error: {error_msg}"
@@ -141,6 +156,13 @@ async def fetch_url_crawl4ai_api(
                     elif "html" in data:
                         # Fallback to HTML if markdown not available
                         text = data["html"]
+                    elif "result" in data:
+                        # Some API versions use 'result' field
+                        result = data["result"]
+                        if isinstance(result, str):
+                            text = result
+                        elif hasattr(result, "markdown"):
+                            text = result.markdown
 
                     if text and text.strip():
                         status_code = data.get("status_code", 200)
