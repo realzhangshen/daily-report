@@ -44,7 +44,7 @@ from .logging_utils import log_event, setup_llm_logger, setup_logging
 from .input.json_parser import parse_folo_json
 from .summarize.tracing import set_span_output, setup_langfuse, start_span
 from .summarize.providers.gemini import GeminiProvider
-from .renderer import render_html, render_markdown
+from .output.renderer import render_html, render_markdown
 
 
 def _categorize_error(error: str | None, status_code: int | None) -> str:
