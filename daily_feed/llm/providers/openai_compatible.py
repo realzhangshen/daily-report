@@ -11,6 +11,7 @@ import httpx
 from ...config import LoggingConfig, ProviderConfig, SummaryConfig
 from ...core.types import Article
 from ...utils.logging import log_event, redact_text, redact_value, truncate_text
+from ..prompts import build_analysis_prompt, build_deep_fetch_prompt
 from ..tracing import record_span_error, set_span_output, start_span
 from .base import AnalysisProvider
 
@@ -41,7 +42,7 @@ class OpenAICompatibleProvider(AnalysisProvider):
         candidate_links: list[str],
         entry_logger: logging.Logger | None = None,
     ) -> dict[str, Any]:
-        prompt = _deep_fetch_prompt(article, text, candidate_links, self.summary_cfg)
+        prompt = build_deep_fetch_prompt(article, text, candidate_links, self.summary_cfg)
         payload = {
             "model": self.cfg.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -111,7 +112,7 @@ class OpenAICompatibleProvider(AnalysisProvider):
         decision: dict[str, Any],
         entry_logger: logging.Logger | None = None,
     ) -> str:
-        prompt = _analysis_prompt(article, base_text, deep_texts, decision, self.summary_cfg)
+        prompt = build_analysis_prompt(article, base_text, deep_texts, decision, self.summary_cfg)
         payload = {
             "model": self.cfg.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -249,58 +250,3 @@ def _extract_fenced_json(content: str) -> str | None:
             snippet = "\n".join(lines[start_idx:idx]).strip()
             return snippet or None
     return None
-
-
-def _deep_fetch_prompt(
-    article: Article,
-    text: str,
-    candidate_links: list[str],
-    cfg: SummaryConfig,
-) -> str:
-    trimmed = text[: cfg.max_chars]
-    links_block = "\n".join(f"- {link}" for link in candidate_links[:50])
-    if not links_block:
-        links_block = "- (no obvious links extracted)"
-    return (
-        "You are helping decide whether to fetch additional related pages. "
-        "Return strict JSON with keys: need_deep_fetch (boolean), urls (array), rationale (string). "
-        "Choose up to 5 URLs from the candidate list if deeper context would materially improve analysis. "
-        "If not needed, set need_deep_fetch=false and urls=[].\n"
-        f"Title: {article.title}\n"
-        f"Site: {article.site}\n"
-        f"Author: {article.author or ''}\n"
-        f"Candidate links:\n{links_block}\n"
-        f"Content (truncated):\n{trimmed}"
-    )
-
-
-def _analysis_prompt(
-    article: Article,
-    base_text: str,
-    deep_texts: list[str],
-    decision: dict[str, Any],
-    cfg: SummaryConfig,
-) -> str:
-    base_trimmed = base_text[: cfg.max_chars]
-    deep_chunks = []
-    for idx, text in enumerate(deep_texts):
-        if not text:
-            continue
-        deep_chunks.append(f"[Deep Source {idx + 1}]\n{text[: cfg.max_chars]}")
-    deep_block = "\n\n".join(deep_chunks) or "(none)"
-    decision_note = (
-        f"Deep fetch decision: {decision.get('need_deep_fetch')}, "
-        f"URLs: {decision.get('urls')}, Rationale: {decision.get('rationale')}"
-    )
-    return (
-        "Write a detailed, long-form analysis in English. "
-        "Do not output JSON or bullet-only summaries. Use paragraphs, "
-        "and you may include headings if helpful. Focus on meaning, implications, "
-        "evidence quality, and what is novel or actionable.\n"
-        f"Title: {article.title}\n"
-        f"Site: {article.site}\n"
-        f"Author: {article.author or ''}\n"
-        f"{decision_note}\n"
-        f"Primary content:\n{base_trimmed}\n\n"
-        f"Additional sources:\n{deep_block}"
-    )
