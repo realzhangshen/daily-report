@@ -1,6 +1,6 @@
 # Daily Feed Agent
 
-Summarize daily RSS exports into a clean HTML report using a pluggable AI provider (Gemini by default).
+Analyze daily RSS exports into a clean HTML report using a pluggable AI provider (Gemini by default).
 
 ## Install (uv)
 
@@ -13,16 +13,18 @@ uv pip install -e .
 
 ```bash
 cp .env.example .env
-# edit .env to add GOOGLE_API_KEY and CRAWL4AI_API_URL
+# edit .env to add provider API key and CRAWL4AI_API_URL
 
-daily-feed run --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
+daily-feed --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
+# disable cache for a full fresh run
+daily-feed --input data/folo-export-2026-02-03.json --output out --config config.example.yaml --no-use-cache
 ```
 
 Output will be written to a subfolder under `out/` named after the input file stem, for example:
 
 ```text
 out/folo-export-2026-02-03/report.html
-out/folo-export-2026-02-03/cache/
+out/folo-export-2026-02-03/articles/
 ```
 
 You can change the subfolder strategy with `--run-folder-mode` or config `output.run_folder_mode`:
@@ -46,8 +48,10 @@ out/run-20260205/
 └── articles/              # Per-article cache
     ├── article-one-a1b2c/
     │   ├── extracted.txt      # Extracted text/markdown
-    │   ├── llm_summary.json   # Summary result
-    │   └── llm_debug.jsonl    # LLM logs
+    │   ├── analysis.txt       # LLM analysis text
+    │   ├── analysis.json      # Analysis metadata
+    │   ├── llm_events.jsonl   # LLM call logs
+    │   └── entry_events.jsonl # Entry-level workflow logs
     └── article-two-c3d4e/
         └── ...
 ```
@@ -62,7 +66,7 @@ Each entry folder is named `{slug}-{shortHash}` where:
 provider:
   name: gemini
   model: gemini-3-flash-preview
-  google_api_key_env: GOOGLE_API_KEY
+  api_key_env: GOOGLE_API_KEY
   base_url: https://generativelanguage.googleapis.com
   # api_key: ""  # optional inline override
   trust_env: true
@@ -78,9 +82,6 @@ fetch:
   crawl4ai_magic: true  # Enable anti-detection "magic" mode
   # Remote Crawl4AI API (required - use environment variable for sensitive URLs)
   crawl4ai_api_url: null  # Uses CRAWL4AI_API_URL from environment
-extract:
-  primary: trafilatura
-  fallback: [readability, bs4]
 dedup:
   enabled: true
   title_similarity_threshold: 92
@@ -105,11 +106,8 @@ logging:
   llm_log_redaction: redact_urls_authors
   llm_log_file: llm.jsonl
 cache:
-  mode: run
-  shared_dir: null
+  enabled: true
   ttl_days: null
-  write_index: true
-  index_filename: index.jsonl
 langfuse:
   enabled: false
   public_key: null
@@ -117,8 +115,27 @@ langfuse:
   host: null
   environment: null
   release: null
+  timeout_seconds: 30
   redaction: redact_urls_authors
   max_text_chars: 20000
+```
+
+Provider is hot-swappable:
+
+```yaml
+# Gemini
+provider:
+  name: gemini
+  model: gemini-3-flash-preview
+  api_key_env: GOOGLE_API_KEY
+  base_url: https://generativelanguage.googleapis.com
+
+# OpenAI-compatible (OpenAI, OpenRouter, self-hosted gateways, etc.)
+provider:
+  name: openai
+  model: gpt-4.1-mini
+  api_key_env: OPENAI_API_KEY
+  base_url: https://api.openai.com/v1
 ```
 
 ## Langfuse Tracing (Prompt/Workflow Iteration)
@@ -134,7 +151,7 @@ Example environment variables:
 ```bash
 export LANGFUSE_PUBLIC_KEY="pk_..."
 export LANGFUSE_SECRET_KEY="sk_..."
-export LANGFUSE_HOST="https://langfuse.your-domain.com"
+export LANGFUSE_BASE_URL="https://langfuse.your-domain.com"
 # export LANGFUSE_ENVIRONMENT="local"
 # export LANGFUSE_RELEASE="daily-feed"
 ```
@@ -144,6 +161,6 @@ Enable in config:
 ```yaml
 langfuse:
   enabled: true
-  host: null  # Uses LANGFUSE_HOST from environment
+  host: null  # Uses LANGFUSE_BASE_URL from environment
   environment: daily-feed
 ```

@@ -4,64 +4,53 @@ import tempfile
 from pathlib import Path
 
 from daily_feed.core.entry import EntryManager
-from daily_feed.core.types import Article, ArticleSummary
+from daily_feed.core.types import AnalysisResult, Article
 
 
 def test_full_pipeline_with_entry_manager():
-    """Test full workflow: fetch -> extract -> summarize with entry folders."""
+    """Test workflow: fetch -> extract -> analyze with entry folders."""
     with tempfile.TemporaryDirectory() as tmpdir:
         articles_dir = Path(tmpdir)
 
-        # Create article
         article = Article(
             title="Test AI Article",
             site="Tech News",
-            url="https://example.com/ai-article"
+            url="https://example.com/ai-article",
         )
         entry = EntryManager(articles_dir, article)
         entry.ensure_folder()
 
-        # Simulate fetch - write HTML
         html = "<html><body><p>AI is advancing rapidly in 2026.</p></body></html>"
         entry.fetched_html.write_text(html, encoding="utf-8")
 
-        # Simulate extract - write text
         text = "AI is advancing rapidly in 2026. New models are released."
         entry.extracted_txt.write_text(text, encoding="utf-8")
 
-        # Simulate LLM summary
-        summary = ArticleSummary(
+        result = AnalysisResult(
             article=article,
-            bullets=["AI models advancing in 2026", "New releases happening"],
-            takeaway="AI technology is progressing quickly.",
-            topic="AI",
-            status="ok"
+            analysis="AI technology is progressing quickly with frequent model releases.",
+            status="ok",
+            meta={"model": "test-model", "deep_fetch": False},
         )
-        summary.meta = {"model": "test-model", "generated_at": "2026-02-05T00:00:00Z"}
-        entry.write_llm_summary(summary)
+        entry.write_analysis_result(result)
 
-        # Verify all files exist
         assert entry.fetched_html.exists()
         assert entry.extracted_txt.exists()
-        assert entry.llm_summary.exists()
+        assert entry.analysis_raw.exists()
+        assert entry.analysis_meta.exists()
 
-        # Verify summary content
-        loaded = entry.read_llm_summary()
-        assert loaded["bullets"] == ["AI models advancing in 2026", "New releases happening"]
-        assert loaded["takeaway"] == "AI technology is progressing quickly."
-        assert loaded["topic"] == "AI"
+        loaded = entry.read_analysis_result()
+        assert loaded is not None
+        assert loaded["analysis"] == result.analysis
+        assert loaded["status"] == "ok"
+        assert loaded["model"] == "test-model"
 
 
 def test_entry_folder_naming_consistency():
     """Same article always produces same folder name."""
     articles_dir = Path("/tmp/test")
 
-    article = Article(
-        title="OpenAI Codex Launch",
-        site="Tech",
-        url="https://example.com/codex"
-    )
-
+    article = Article(title="OpenAI Codex Launch", site="Tech", url="https://example.com/codex")
     entry1 = EntryManager(articles_dir, article)
     entry2 = EntryManager(articles_dir, article)
 
@@ -75,115 +64,83 @@ def test_multiple_articles_different_folders():
     article1 = Article(
         title="AI Advances in 2026",
         site="Tech News",
-        url="https://example.com/ai-2026"
+        url="https://example.com/ai-2026",
     )
-
     article2 = Article(
         title="Quantum Computing Breakthrough",
         site="Science Daily",
-        url="https://example.com/quantum"
+        url="https://example.com/quantum",
     )
 
     entry1 = EntryManager(articles_dir, article1)
     entry2 = EntryManager(articles_dir, article2)
 
-    # Different articles should have different folder names
     assert entry1.folder.name != entry2.folder.name
-
-    # Folder names should contain the slug
     assert "ai-advances-in-2026" in entry1.folder.name
     assert "quantum-computing-breakthrough" in entry2.folder.name
 
 
-def test_full_pipeline_with_error_handling():
-    """Test pipeline with error scenarios."""
+def test_pipeline_with_analysis_error_status():
+    """Analysis artifacts should still be writable on error status."""
     with tempfile.TemporaryDirectory() as tmpdir:
         articles_dir = Path(tmpdir)
 
-        article = Article(
-            title="Test Article",
-            site="Test Site",
-            url="https://example.com/test"
-        )
+        article = Article(title="Test Article", site="Test Site", url="https://example.com/test")
         entry = EntryManager(articles_dir, article)
         entry.ensure_folder()
 
-        # Simulate fetch - write HTML
-        html = "<html><body><p>Content here</p></body></html>"
-        entry.fetched_html.write_text(html, encoding="utf-8")
-
-        # Simulate extraction failure
+        entry.fetched_html.write_text("<html><body><p>Content here</p></body></html>", encoding="utf-8")
         entry.extracted_txt.write_text("", encoding="utf-8")
 
-        # Verify files exist
-        assert entry.fetched_html.exists()
-        assert entry.extracted_txt.exists()
-
-        # Summary should still be writable even with empty extraction
-        summary = ArticleSummary(
+        result = AnalysisResult(
             article=article,
-            bullets=["Error extracting content"],
-            takeaway="Could not extract article content.",
-            topic="Error",
-            status="provider_error"
+            analysis="Provider error: TimeoutError",
+            status="provider_error",
+            meta={"model": "test-model", "error": "timeout"},
         )
-        summary.meta = {"model": "test-model", "error": "extraction_failed"}
-        entry.write_llm_summary(summary)
+        entry.write_analysis_result(result)
 
-        # Verify summary was written
-        loaded = entry.read_llm_summary()
+        loaded = entry.read_analysis_result()
+        assert loaded is not None
         assert loaded["status"] == "provider_error"
-        assert loaded["topic"] == "Error"
+        assert loaded["error"] == "timeout"
 
 
 def test_entry_folder_persistence():
-    """Test that entry data persists across manager instances."""
+    """Entry data should persist across manager instances."""
     with tempfile.TemporaryDirectory() as tmpdir:
         articles_dir = Path(tmpdir)
 
-        article = Article(
-            title="Persistent Article",
-            site="Test",
-            url="https://example.com/persistent"
-        )
+        article = Article(title="Persistent Article", site="Test", url="https://example.com/persistent")
 
-        # First manager - write data
         entry1 = EntryManager(articles_dir, article)
         entry1.ensure_folder()
-
-        summary = ArticleSummary(
+        result = AnalysisResult(
             article=article,
-            bullets=["Point 1", "Point 2"],
-            takeaway="Test takeaway",
-            topic="Test",
-            status="ok"
+            analysis="Persistent analysis",
+            status="ok",
+            meta={"model": "test-model"},
         )
-        summary.meta = {"model": "test-model"}
-        entry1.write_llm_summary(summary)
+        entry1.write_analysis_result(result)
 
-        # Second manager - read data (same folder)
         entry2 = EntryManager(articles_dir, article)
-
-        # Should read the same data
-        loaded = entry2.read_llm_summary()
+        loaded = entry2.read_analysis_result()
         assert loaded is not None
-        assert loaded["bullets"] == ["Point 1", "Point 2"]
-        assert loaded["takeaway"] == "Test takeaway"
+        assert loaded["analysis"] == "Persistent analysis"
+        assert loaded["status"] == "ok"
 
 
 def test_article_with_special_characters():
-    """Test that articles with special characters are handled correctly."""
+    """Articles with special characters should produce safe folder names."""
     articles_dir = Path("/tmp/test")
 
     article = Article(
         title="AI & Machine Learning: What's Next? (2026)",
         site="Tech News",
-        url="https://example.com/ai-ml-2026"
+        url="https://example.com/ai-ml-2026",
     )
-
     entry = EntryManager(articles_dir, article)
 
-    # Should sanitize special characters
     assert "&" not in entry.folder.name
     assert "?" not in entry.folder.name
     assert "(" not in entry.folder.name

@@ -8,14 +8,13 @@ settings. Supports loading .env files for API key configuration.
 from __future__ import annotations
 
 from pathlib import Path
-import os
 
 import typer
 from rich.console import Console
 
 from .config import load_config
+from .llm.tracing import flush
 from .runner import run_pipeline
-from .summarize.tracing import flush
 
 try:
     from dotenv import load_dotenv
@@ -44,17 +43,13 @@ def run(
     log_file: bool | None = typer.Option(
         None, "--log-file/--no-log-file", help="Enable or disable file logging."
     ),
-    cache_mode: str | None = typer.Option(
-        None, "--cache-mode", help="Cache mode: run or shared."
-    ),
     cache_ttl_days: int | None = typer.Option(
         None, "--cache-ttl-days", help="Cache TTL in days."
     ),
-    cache_shared_dir: Path | None = typer.Option(
-        None, "--cache-shared-dir", help="Shared cache directory."
-    ),
-    cache_index: bool | None = typer.Option(
-        None, "--cache-index/--no-cache-index", help="Enable or disable cache index."
+    use_cache: bool | None = typer.Option(
+        None,
+        "--use-cache/--no-use-cache",
+        help="Enable or disable cache usage for fetch/analyze stages.",
     ),
     api_key: str | None = typer.Option(
         None,
@@ -77,10 +72,8 @@ def run(
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
         log_format: Log file format (jsonl, plain)
         log_file: Enable/disable file logging
-        cache_mode: Cache mode (run, shared)
         cache_ttl_days: Cache entry time-to-live
-        cache_shared_dir: Custom shared cache directory
-        cache_index: Enable/disable cache index writing
+        use_cache: Whether to use cache for fetch/analyze
         api_key: Override LLM provider API key
     """
     # Load environment variables from .env if available
@@ -101,14 +94,10 @@ def run(
         cfg.logging.format = log_format
     if log_file is not None:
         cfg.logging.file = log_file
-    if cache_mode:
-        cfg.cache.mode = cache_mode
     if cache_ttl_days is not None:
         cfg.cache.ttl_days = cache_ttl_days
-    if cache_shared_dir is not None:
-        cfg.cache.shared_dir = str(cache_shared_dir)
-    if cache_index is not None:
-        cfg.cache.write_index = cache_index
+    if use_cache is not None:
+        cfg.cache.enabled = use_cache
 
     # Run the pipeline
     output_path = run_pipeline(input, output, cfg, show_progress=progress, console=console)

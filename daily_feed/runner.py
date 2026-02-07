@@ -5,9 +5,8 @@ This module coordinates the entire workflow:
 1. Parse markdown input
 2. Deduplicate articles
 3. Fetch and extract content (via remote Crawl4AI API only)
-4. Generate summaries via LLM
-5. Group by topic
-6. Render output files
+4. Analyze each entry via LLM (with optional deep fetch)
+5. Render output files
 
 Supports both progress bar and quiet modes. Fetching is done exclusively
 through the remote Crawl4AI API service.
@@ -32,19 +31,33 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from .config import AppConfig, get_api_key
-# from .cache import CacheIndex  # Deprecated: per-entry cache replaces cache directory
+from .config import AppConfig
 from .core.dedup import dedup_articles
 from .core.entry import EntryManager
-from .core.types import ArticleSummary, ExtractedArticle
-from .fetch.extractor import extract_text
+from .core.types import AnalysisResult, ExtractedArticle
 from .config import get_crawl4ai_api_url, get_crawl4ai_api_auth
 from .fetch.fetcher import fetch_url_crawl4ai_api
-from .utils.logging import log_event, setup_llm_logger, setup_logging
+from .utils.logging import log_event, setup_logging
 from .input.json_parser import parse_folo_json
-from .summarize.tracing import set_span_output, setup_langfuse, start_span
-from .summarize.providers.gemini import GeminiProvider
+from .llm.tracing import set_span_output, setup_langfuse, start_span
+from .llm.providers import create_provider
+from .analyzers.entry_analyzer import EntryAnalyzer
 from .output.renderer import render_html, render_markdown
+
+
+def _is_cache_enabled(cfg: AppConfig) -> bool:
+    """Return whether cache read/write is enabled in config."""
+    return cfg.cache.enabled
+
+
+def _read_cached_analysis(entry: EntryManager, cfg: AppConfig) -> dict | None:
+    """Read cached analysis only when cache is enabled and valid."""
+    if not _is_cache_enabled(cfg):
+        return None
+    cached_analysis = entry.read_analysis_result()
+    if cached_analysis and EntryManager.is_entry_valid(entry.folder, cfg.cache.ttl_days):
+        return cached_analysis
+    return None
 
 
 def _categorize_error(error: str | None, status_code: int | None) -> str:
@@ -153,98 +166,57 @@ def run_pipeline(
                 )
             _render_fetch_stats(stats, console or Console())
             provider = _build_provider(cfg, None)
+            analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
 
-            summaries: list[ArticleSummary] = []
+            results: list[AnalysisResult] = []
             with start_span(
-                "daily_feed.summarize_batch",
+                "daily_feed.analyze_batch",
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
                 for item in extracted:
                     entry = EntryManager(articles_dir, item.article)
 
-                    if not item.text:
-                        summary_text = item.article.summary or ""
-                        summaries.append(
-                            ArticleSummary(
-                                article=item.article,
-                                bullets=["Summary unavailable; used RSS summary."],
-                                takeaway=summary_text,
-                                status="summary_only",
-                            )
-                        )
-                        continue
-
-                    # Check for cached summary
-                    cached_summary = entry.read_llm_summary()
-                    if cached_summary and EntryManager.is_entry_valid(
-                        entry.folder, cfg.cache.ttl_days
-                    ):
-                        # Use cached summary
-                        summary = ArticleSummary(
+                    cached_analysis = _read_cached_analysis(entry, cfg)
+                    if cached_analysis:
+                        result = AnalysisResult(
                             article=item.article,
-                            bullets=cached_summary.get("bullets", []),
-                            takeaway=cached_summary.get("takeaway", ""),
-                            topic=cached_summary.get("topic"),
-                            status=cached_summary.get("status", "ok"),
+                            analysis=cached_analysis.get("analysis", ""),
+                            status=cached_analysis.get("status", "ok"),
+                            meta={
+                                k: v
+                                for k, v in cached_analysis.items()
+                                if k not in {"analysis", "status", "article"}
+                            },
                         )
                         log_event(
                             logger,
-                            "Summary cache hit",
-                            event="summary_cache_hit",
+                            "Analysis cache hit",
+                            event="analysis_cache_hit",
                             url=item.article.url,
                             title=item.article.title,
                         )
                     else:
-                        # Generate new summary with per-entry logging
-                        entry_logger = entry.get_llm_logger()
-                        summary = provider.summarize_article(
-                            item.article, item.text, entry_logger=entry_logger
-                        )
-                        if summary.status == "parse_error":
-                            log_event(
-                                logger,
-                                "LLM parse error",
-                                event="llm_parse_error",
-                                url=item.article.url,
-                                title=item.article.title,
-                            )
-                        # Save summary to entry
-                        entry.write_llm_summary(summary)
-                    summaries.append(summary)
-
-            with start_span(
-                "daily_feed.group_topics",
-                kind="chain",
-                input_value={"count": len(summaries)},
-            ):
-                grouped = provider.group_topics(summaries)
-            if not grouped:
-                for summary in summaries:
-                    summary.topic = None
-            else:
-                used_titles = {s.article.title for group in grouped.values() for s in group}
-                for summary in summaries:
-                    if summary.article.title not in used_titles:
-                        summary.topic = None
+                        result = analyzer.analyze(item)
+                    results.append(result)
 
             title = f"Daily Feed Report - {input_path.stem}"
             html_path = run_output_dir / "report.html"
-            render_html(summaries, html_path, title)
+            render_html(results, html_path, title)
 
             if cfg.output.include_markdown:
                 md_path = run_output_dir / "report.md"
-                render_markdown(summaries, md_path, title)
+                render_markdown(results, md_path, title)
 
             log_event(
                 logger,
                 "Pipeline complete",
                 event="pipeline_complete",
                 output=str(html_path),
-                total=len(summaries),
+                total=len(results),
             )
             set_span_output(
-                run_span, {"report": str(html_path), "total": len(summaries)}
+                run_span, {"report": str(html_path), "total": len(results)}
             )
             return html_path
 
@@ -285,92 +257,50 @@ def run_pipeline(
             progress.advance(stage_task, 1)
 
             provider = _build_provider(cfg, None)
+            analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
 
-            summarize_task = progress.add_task("Summarize", total=len(extracted))
-            summaries: list[ArticleSummary] = []
+            summarize_task = progress.add_task("Analyze", total=len(extracted))
+            results: list[AnalysisResult] = []
             with start_span(
-                "daily_feed.summarize_batch",
+                "daily_feed.analyze_batch",
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
                 for item in extracted:
                     entry = EntryManager(articles_dir, item.article)
 
-                    if not item.text:
-                        summary_text = item.article.summary or ""
-                        summaries.append(
-                            ArticleSummary(
-                                article=item.article,
-                                bullets=["Summary unavailable; used RSS summary."],
-                                takeaway=summary_text,
-                                status="summary_only",
-                            )
-                        )
-                        progress.advance(summarize_task, 1)
-                        continue
-
-                    # Check for cached summary
-                    cached_summary = entry.read_llm_summary()
-                    if cached_summary and EntryManager.is_entry_valid(
-                        entry.folder, cfg.cache.ttl_days
-                    ):
-                        # Use cached summary
-                        summary = ArticleSummary(
+                    cached_analysis = _read_cached_analysis(entry, cfg)
+                    if cached_analysis:
+                        result = AnalysisResult(
                             article=item.article,
-                            bullets=cached_summary.get("bullets", []),
-                            takeaway=cached_summary.get("takeaway", ""),
-                            topic=cached_summary.get("topic"),
-                            status=cached_summary.get("status", "ok"),
+                            analysis=cached_analysis.get("analysis", ""),
+                            status=cached_analysis.get("status", "ok"),
+                            meta={
+                                k: v
+                                for k, v in cached_analysis.items()
+                                if k not in {"analysis", "status", "article"}
+                            },
                         )
                         log_event(
                             logger,
-                            "Summary cache hit",
-                            event="summary_cache_hit",
+                            "Analysis cache hit",
+                            event="analysis_cache_hit",
                             url=item.article.url,
                             title=item.article.title,
                         )
                     else:
-                        # Generate new summary with per-entry logging
-                        entry_logger = entry.get_llm_logger()
-                        summary = provider.summarize_article(
-                            item.article, item.text, entry_logger=entry_logger
-                        )
-                        if summary.status == "parse_error":
-                            log_event(
-                                logger,
-                                "LLM parse error",
-                                event="llm_parse_error",
-                                url=item.article.url,
-                                title=item.article.title,
-                            )
-                        # Save summary to entry
-                        entry.write_llm_summary(summary)
-                    summaries.append(summary)
+                        result = analyzer.analyze(item)
+                    results.append(result)
                     progress.advance(summarize_task, 1)
             progress.advance(stage_task, 1)
 
-            with start_span(
-                "daily_feed.group_topics",
-                kind="chain",
-                input_value={"count": len(summaries)},
-            ):
-                grouped = provider.group_topics(summaries)
-            if not grouped:
-                for summary in summaries:
-                    summary.topic = None
-            else:
-                used_titles = {s.article.title for group in grouped.values() for s in group}
-                for summary in summaries:
-                    if summary.article.title not in used_titles:
-                        summary.topic = None
-
             title = f"Daily Feed Report - {input_path.stem}"
             html_path = run_output_dir / "report.html"
-            render_html(summaries, html_path, title)
+            render_html(results, html_path, title)
 
             if cfg.output.include_markdown:
                 md_path = run_output_dir / "report.md"
-                render_markdown(summaries, md_path, title)
+                render_markdown(results, md_path, title)
 
             progress.advance(stage_task, 1)
             log_event(
@@ -378,10 +308,10 @@ def run_pipeline(
                 "Pipeline complete",
                 event="pipeline_complete",
                 output=str(html_path),
-                total=len(summaries),
+                total=len(results),
             )
             set_span_output(
-                run_span, {"report": str(html_path), "total": len(summaries)}
+                run_span, {"report": str(html_path), "total": len(results)}
             )
 
         return html_path
@@ -511,7 +441,7 @@ async def _fetch_and_extract_api_async(
         entry.ensure_folder()
 
         # Check for cached extracted text (fastest path)
-        if entry.extracted_txt.exists() and EntryManager.is_entry_valid(
+        if _is_cache_enabled(cfg) and entry.extracted_txt.exists() and EntryManager.is_entry_valid(
             entry.folder, cfg.cache.ttl_days
         ):
             text = entry.extracted_txt.read_text(encoding="utf-8")
@@ -554,7 +484,8 @@ async def _fetch_and_extract_api_async(
             text = None
 
         if text:
-            entry.extracted_txt.write_text(text, encoding="utf-8")
+            if _is_cache_enabled(cfg):
+                entry.extracted_txt.write_text(text, encoding="utf-8")
             stats.api_success += 1
             await _advance_progress()
             return ExtractedArticle(article=article, text=text, error=None)
@@ -651,97 +582,8 @@ def _is_placeholder_text(text: str) -> bool:
 
 
 def _build_provider(cfg: AppConfig, llm_logger):
-    """Build the LLM provider instance based on configuration.
-
-    Args:
-        cfg: Application configuration
-        llm_logger: Logger for LLM interactions
-
-    Returns:
-        Provider instance (e.g., GeminiProvider)
-
-    Raises:
-        ValueError: If provider name is not supported
-    """
-    if cfg.provider.name == "gemini":
-        api_key = get_api_key(cfg.provider)
-        return GeminiProvider(cfg.provider, cfg.summary, api_key, cfg.logging, llm_logger)
-    raise ValueError(f"Unsupported provider: {cfg.provider.name}")
-
-
-# Deprecated: Per-entry cache replaces cache directory approach
-# def _build_cache_dir(run_output_dir: Path, output_dir: Path, cfg: AppConfig) -> Path:
-#     """Determine the cache directory based on cache mode.
-#
-#     Args:
-#         run_output_dir: The current run's output directory
-#         output_dir: Base output directory
-#         cfg: Application configuration
-#
-#     Returns:
-#         Path to the cache directory
-#     """
-#     mode = (cfg.cache.mode or "run").lower()
-#     if mode == "shared":
-#         if cfg.cache.shared_dir:
-#             return Path(cfg.cache.shared_dir)
-#         return output_dir / "cache_shared"
-#     return run_output_dir / "cache"
-
-
-def _is_cache_valid(path: Path, cfg: AppConfig) -> bool:
-    """Check if a cache file is still valid based on TTL.
-
-    Args:
-        path: Path to the cache file
-        cfg: Application configuration with TTL settings
-
-    Returns:
-        True if cache exists and is within TTL (or TTL is not set)
-    """
-    if not path.exists():
-        return False
-    if cfg.cache.ttl_days is None:
-        return True
-    age_seconds = max(0, (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds())
-    return age_seconds <= cfg.cache.ttl_days * 86400
-
-
-# Deprecated: Per-entry cache replaces cache directory approach
-# def _append_cache_index(
-#     cache_index: CacheIndex | None,
-#     url: str,
-#     path: Path,
-#     kind: str,
-#     source: str,
-#     status_code: int | None,
-#     error: str | None,
-# ) -> None:
-#     """Append an entry to the cache index if enabled.
-#
-#     Args:
-#         cache_index: CacheIndex instance (may be None)
-#         url: The URL being cached
-#         path: Path to the cache file
-#         kind: Type of content ("html" or "txt")
-#         source: Source of content ("cache", "crawl4ai_api", "extract")
-#         status_code: HTTP status code if applicable
-#         error: Error message if applicable
-#     """
-#     if cache_index is None:
-#         return
-#     cache_index.append(
-#         {
-#             "url": url,
-#             "hash": path.name.split(".")[0],
-#             "kind": kind,
-#             "path": str(path),
-#             "source": source,
-#             "status_code": status_code,
-#             "error": error,
-#             "content_len": path.stat().st_size if path.exists() else None,
-#         }
-#     )
+    """Build a pluggable LLM provider instance based on configuration."""
+    return create_provider(cfg.provider, cfg.summary, cfg.logging, llm_logger)
 
 
 def _build_run_output_dir(output_dir: Path, input_path: Path, cfg: AppConfig) -> Path:

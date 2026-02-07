@@ -18,7 +18,7 @@
 
   Each article entry contains:
     id: URL-safe anchor ID
-    summary: ArticleSummary object with article metadata and AI-generated content
+    result: AnalysisResult object with article metadata and AI-generated content
 #}
 <!DOCTYPE html>
 <html lang="en">
@@ -152,6 +152,10 @@
       background: #f1f9f8;
       border-left: 4px solid var(--accent);
     }
+    .analysis {
+      margin: 0.6rem 0 0;
+      white-space: pre-wrap;
+    }
     @media (max-width: 900px) {
       main {
         grid-template-columns: 1fr;
@@ -174,21 +178,14 @@
         <h2>{{ group.name }}</h2>
         {% for item in group.articles %}
       <article class="article">
-        <h3 id="{{ item.id }}">{{ item.summary.article.title }}</h3>
+        <h3 id="{{ item.id }}">{{ item.result.article.title }}</h3>
         <div class="meta">
-          {{ item.summary.article.site }}{% if item.summary.article.author %} · {{ item.summary.article.author }}{% endif %}
-          {% if item.summary.article.time %} · {{ item.summary.article.time }}{% endif %}
-          · <a href="{{ item.summary.article.url }}" target="_blank" rel="noopener">Source</a>
+          {{ item.result.article.site }}{% if item.result.article.author %} · {{ item.result.article.author }}{% endif %}
+          {% if item.result.article.time %} · {{ item.result.article.time }}{% endif %}
+          · <a href="{{ item.result.article.url }}" target="_blank" rel="noopener">Source</a>
         </div>
-        {% if item.summary.bullets %}
-        <ul>
-          {% for bullet in item.summary.bullets %}
-          <li>{{ bullet }}</li>
-          {% endfor %}
-        </ul>
-        {% endif %}
-        {% if item.summary.takeaway %}
-        <div class="takeaway">{{ item.summary.takeaway }}</div>
+        {% if item.result.analysis %}
+        <div class="analysis">{{ item.result.analysis }}</div>
         {% endif %}
       </article>
         {% endfor %}

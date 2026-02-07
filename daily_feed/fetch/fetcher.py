@@ -8,8 +8,6 @@ JavaScript rendering and anti-bot detection.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
-from pathlib import Path
 
 import httpx
 import asyncio
@@ -192,26 +190,3 @@ async def fetch_url_crawl4ai_api(
                 await asyncio.sleep(0.5 * (attempt + 1))
 
     return FetchResult(url=url, status_code=None, text=None, error=last_error)
-
-
-def cache_path(cache_dir: Path, url: str, suffix: str) -> Path:
-    """Generate a cache file path for a URL using SHA256 hashing.
-
-    The URL is hashed to create a unique filename that's safe for all
-    filesystems. This allows caching content without filename issues
-    from special characters in URLs.
-
-    Args:
-        cache_dir: The directory where cache files are stored
-        url: The URL being cached
-        suffix: File extension for the cache (e.g., "html", "txt")
-
-    Returns:
-        Path object for the cache file
-
-    Example:
-        >>> cache_path(Path("/cache"), "https://example.com", "txt")
-        Path('/cache/a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146.txt')
-    """
-    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
-    return cache_dir / f"{digest}.{suffix}"

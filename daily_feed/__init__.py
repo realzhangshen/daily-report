@@ -1,8 +1,8 @@
 """
-Daily Feed Agent - AI-powered RSS feed summarizer.
+Daily Feed Agent - AI-powered RSS feed analyzer.
 
 This package processes RSS feed exports (Folo JSON format) to generate
-HTML/Markdown reports with AI-powered summaries and topic grouping.
+HTML/Markdown reports with AI-powered analysis and optional deep fetch.
 
 Main entry point is the CLI via `daily-feed run` command.
 

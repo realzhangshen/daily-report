@@ -1,7 +1,7 @@
 provider:
   name: gemini
   model: gemini-3-flash-preview
-  google_api_key_env: GOOGLE_API_KEY
+  api_key_env: GOOGLE_API_KEY
   base_url: https://generativelanguage.googleapis.com
   # api_key: ""  # optional inline override
   trust_env: true
@@ -10,6 +10,7 @@ fetch:
   retries: 2
   trust_env: true
   user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+  deep_fetch_max_links: 5
   # Anti-bot detection options (helps with Cloudflare-protected sites like Product Hunt)
   crawl4ai_stealth: true  # Enable stealth mode to bypass bot detection
   crawl4ai_delay: 2.0  # Delay before returning HTML (allows challenges to complete)
@@ -21,9 +22,6 @@ fetch:
   # HTTP Basic Auth (for nginx auth, use environment variables for sensitive data)
   crawl4ai_api_username: null  # Uses CRAWL4AI_API_USERNAME from environment
   crawl4ai_api_password: null  # Uses CRAWL4AI_API_PASSWORD from environment
-extract:
-  primary: trafilatura
-  fallback: [readability, bs4]
 dedup:
   enabled: true
   title_similarity_threshold: 92
@@ -50,19 +48,15 @@ logging:
   llm_log_file: llm.jsonl
 langfuse:
   enabled: true
-  # Keys from environment: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
+  # Keys from environment: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
   public_key: null
   secret_key: null
   host: null
   environment: development
   release: v0.1.0
+  timeout_seconds: 30
   redaction: redact_urls_authors
   max_text_chars: 20000
 cache:
-  mode: run  # Options: run, shared (shared still uses old structure)
+  enabled: true  # Whether to use cache for fetch/analyze stages
   ttl_days: null  # Cache TTL in days, null = no expiration
-  # Note: Cache is now organized as articles/{slug}-{hash}/
-  # with fetched.html, extracted.txt, llm_summary.json, llm_debug.jsonl
-  shared_dir: null
-  write_index: false
-  index_filename: "index.jsonl"

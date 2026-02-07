@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar
 import json
+import logging
 from typing import Any, Iterator
 
 from ..config import LangfuseConfig
@@ -18,6 +19,7 @@ from ..utils.logging import redact_text, truncate_text
 _TRACER = None
 _CFG: LangfuseConfig | None = None
 _TRACE_STACK: ContextVar[list[Any]] = ContextVar("langfuse_trace_stack", default=[])
+_LOG = logging.getLogger("daily_feed")
 
 
 def setup_langfuse(cfg: LangfuseConfig) -> None:
@@ -33,12 +35,27 @@ def setup_langfuse(cfg: LangfuseConfig) -> None:
         _TRACER = None
         return
 
+    public_key = _coalesce(cfg.public_key, "LANGFUSE_PUBLIC_KEY")
+    secret_key = _coalesce(cfg.secret_key, "LANGFUSE_SECRET_KEY")
+    host = _coalesce(cfg.host, "LANGFUSE_BASE_URL")
+    environment = _coalesce(cfg.environment, "LANGFUSE_ENVIRONMENT")
+    release = _coalesce(cfg.release, "LANGFUSE_RELEASE")
+
+    if not public_key or not secret_key:
+        _LOG.warning(
+            "Langfuse enabled but keys are missing. Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY."
+        )
+        _TRACER = None
+        return
+
+    # Use base_url to support both cloud and self-hosted deployments.
     _TRACER = Langfuse(
-        public_key=_coalesce(cfg.public_key, "LANGFUSE_PUBLIC_KEY"),
-        secret_key=_coalesce(cfg.secret_key, "LANGFUSE_SECRET_KEY"),
-        host=_coalesce(cfg.host, "LANGFUSE_HOST"),
-        environment=_coalesce(cfg.environment, "LANGFUSE_ENVIRONMENT"),
-        release=_coalesce(cfg.release, "LANGFUSE_RELEASE"),
+        public_key=public_key,
+        secret_key=secret_key,
+        base_url=host,
+        environment=environment,
+        release=release,
+        timeout=cfg.timeout_seconds,
     )
 
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from ..core.types import ArticleSummary
+from ..core.types import AnalysisResult
 
 
 def _slugify(value: str) -> str:
@@ -50,14 +50,14 @@ def _slugify(value: str) -> str:
     return slug or "section"
 
 
-def render_html(summaries: list[ArticleSummary], output_path: Path, title: str) -> None:
-    """Render summaries as an HTML report using Jinja2 template.
+def render_html(results: list[AnalysisResult], output_path: Path, title: str) -> None:
+    """Render analysis results as an HTML report using Jinja2 template.
 
     Groups summaries by topic (or site if no topic), generates a table
     of contents, and creates anchor links for navigation.
 
     Args:
-        summaries: List of ArticleSummary objects to render
+        results: List of AnalysisResult objects to render
         output_path: Path where the HTML file will be written
         title: Report title displayed in the header
     """
@@ -69,9 +69,9 @@ def render_html(summaries: list[ArticleSummary], output_path: Path, title: str) 
 
     # Group by topic or site
     grouped = defaultdict(list)
-    for summary in summaries:
-        group = summary.topic or summary.article.site
-        grouped[group].append(summary)
+    for result in results:
+        group = result.article.site
+        grouped[group].append(result)
 
     # Sort groups by size (descending), then alphabetically
     sorted_groups = sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0].lower()))
@@ -95,7 +95,7 @@ def render_html(summaries: list[ArticleSummary], output_path: Path, title: str) 
                 if title_count
                 else f"{group_id}-{title_base}"
             )
-            enriched_items.append({"id": article_id, "summary": item})
+            enriched_items.append({"id": article_id, "result": item})
         groups.append(
             {
                 "id": group_id,
@@ -116,50 +116,47 @@ def render_html(summaries: list[ArticleSummary], output_path: Path, title: str) 
                 "name": group["name"],
                 "count": group["count"],
                 "toc_items": [
-                    {"id": item["id"], "title": item["summary"].article.title}
+                    {"id": item["id"], "title": item["result"].article.title}
                     for item in group["articles"]
                 ],
             }
             for group in groups
         ],
-        total=len(summaries),
+        total=len(results),
     )
     output_path.write_text(html, encoding="utf-8")
 
 
-def render_markdown(summaries: list[ArticleSummary], output_path: Path, title: str) -> None:
-    """Render summaries as a Markdown report.
+def render_markdown(results: list[AnalysisResult], output_path: Path, title: str) -> None:
+    """Render analysis results as a Markdown report.
 
     Groups summaries by topic (or site if no topic) and formats
     with standard Markdown headings and lists.
 
     Args:
-        summaries: List of ArticleSummary objects to render
+        results: List of AnalysisResult objects to render
         output_path: Path where the Markdown file will be written
         title: Report title for the top-level heading
     """
     grouped = defaultdict(list)
-    for summary in summaries:
-        group = summary.topic or summary.article.site
-        grouped[group].append(summary)
+    for result in results:
+        group = result.article.site
+        grouped[group].append(result)
 
-    lines = [f"# {title}", "", f"Total: {len(summaries)}", ""]
+    lines = [f"# {title}", "", f"Total: {len(results)}", ""]
     for group, items in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0].lower())):
         lines.append(f"## {group}")
         lines.append("")
-        for summary in items:
-            art = summary.article
+        for result in items:
+            art = result.article
             lines.append(f"### {art.title}")
             lines.append(f"- Source: {art.site}{(' @' + art.author) if art.author else ''}")
             if art.time:
                 lines.append(f"- Time: {art.time}")
             lines.append(f"- Link: {art.url}")
-            if summary.bullets:
-                lines.append("- Key Points:")
-                for bullet in summary.bullets:
-                    lines.append(f"  - {bullet}")
-            if summary.takeaway:
-                lines.append(f"- Takeaway: {summary.takeaway}")
+            if result.analysis:
+                lines.append("")
+                lines.append(result.analysis)
             lines.append("")
 
     output_path.write_text("\n".join(lines), encoding="utf-8")

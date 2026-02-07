@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from daily_feed.core.types import Article
-from daily_feed.core.types import ArticleSummary
+from daily_feed.core.types import AnalysisResult
 from daily_feed.utils.logging import JsonlFormatter
 
 
@@ -113,22 +113,40 @@ class EntryManager:
         return self.folder / "extracted.txt"
 
     @property
-    def llm_summary(self) -> Path:
-        """Returns path to the LLM summary JSON file.
-
-        Returns:
-            Path object for llm_summary.json
-        """
-        return self.folder / "llm_summary.json"
-
-    @property
     def llm_debug(self) -> Path:
         """Returns path to the LLM debug JSONL file.
 
         Returns:
-            Path object for llm_debug.jsonl
+            Path object for llm_events.jsonl
         """
-        return self.folder / "llm_debug.jsonl"
+        return self.folder / "llm_events.jsonl"
+
+    @property
+    def analysis_raw(self) -> Path:
+        """Returns path to the analysis raw text file.
+
+        Returns:
+            Path object for analysis.txt
+        """
+        return self.folder / "analysis.txt"
+
+    @property
+    def analysis_meta(self) -> Path:
+        """Returns path to the analysis metadata JSON file.
+
+        Returns:
+            Path object for analysis.json
+        """
+        return self.folder / "analysis.json"
+
+    @property
+    def analysis_debug(self) -> Path:
+        """Returns path to the analysis debug JSONL file.
+
+        Returns:
+            Path object for entry_events.jsonl
+        """
+        return self.folder / "entry_events.jsonl"
 
     def ensure_folder(self) -> None:
         """Create the entry folder if it doesn't exist.
@@ -164,49 +182,42 @@ class EntryManager:
 
         return folder_age_seconds <= ttl_seconds
 
-    def write_llm_summary(self, summary: ArticleSummary) -> None:
-        """Write LLM summary to JSON file.
-
-        The JSON includes:
-        - bullets
-        - takeaway
-        - topic
-        - status
-        - article (title, url, site)
-        - model (from summary.meta)
-        - generated_at (from summary.meta)
+    def write_analysis_result(self, result: AnalysisResult) -> None:
+        """Write analysis output and metadata to entry files.
 
         Args:
-            summary: The ArticleSummary object to write
+            result: The AnalysisResult object to write
         """
-        data: dict[str, Any] = {
-            "bullets": summary.bullets,
-            "takeaway": summary.takeaway,
-            "topic": summary.topic,
-            "status": summary.status,
+        if result.analysis:
+            self.analysis_raw.write_text(result.analysis, encoding="utf-8")
+
+        meta: dict[str, Any] = {
+            "status": result.status,
             "article": {
-                "title": summary.article.title,
-                "url": summary.article.url,
-                "site": summary.article.site,
+                "title": result.article.title,
+                "url": result.article.url,
+                "site": result.article.site,
             },
-            "model": summary.meta.get("model"),
-            "generated_at": summary.meta.get("generated_at"),
         }
+        meta.update(result.meta or {})
+        with open(self.analysis_meta, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
 
-        with open(self.llm_summary, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-
-    def read_llm_summary(self) -> dict[str, Any] | None:
-        """Read LLM summary from JSON file.
+    def read_analysis_result(self) -> dict[str, Any] | None:
+        """Read analysis output and metadata from entry files.
 
         Returns:
-            Dictionary with summary data, or None if file doesn't exist
+            Dictionary with analysis data, or None if files are missing
         """
-        if not self.llm_summary.exists():
+        if not self.analysis_meta.exists():
             return None
-
-        with open(self.llm_summary, "r", encoding="utf-8") as f:
-            return json.load(f)
+        analysis_text = ""
+        if self.analysis_raw.exists():
+            analysis_text = self.analysis_raw.read_text(encoding="utf-8")
+        with open(self.analysis_meta, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        meta["analysis"] = analysis_text
+        return meta
 
     def get_llm_logger(self) -> logging.Logger | None:
         """Get or create logger for this entry's LLM interactions.
@@ -223,6 +234,26 @@ class EntryManager:
         logger.setLevel(logging.INFO)
 
         file_handler = logging.FileHandler(self.llm_debug, encoding="utf-8")
+        file_handler.setFormatter(JsonlFormatter())
+        logger.addHandler(file_handler)
+
+        return logger
+
+    def get_analysis_logger(self) -> logging.Logger | None:
+        """Get or create logger for this entry's analysis events.
+
+        Returns:
+            Logger instance, or None if folder doesn't exist
+        """
+        if not self.folder.exists():
+            return None
+
+        logger = logging.getLogger(f"daily_feed.entry.analysis.{self.folder.name}")
+        logger.handlers = []
+        logger.propagate = False
+        logger.setLevel(logging.INFO)
+
+        file_handler = logging.FileHandler(self.analysis_debug, encoding="utf-8")
         file_handler.setFormatter(JsonlFormatter())
         logger.addHandler(file_handler)
 

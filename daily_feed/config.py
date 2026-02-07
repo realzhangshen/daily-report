@@ -4,7 +4,6 @@ Configuration management using YAML files and dataclasses.
 This module defines all configuration dataclasses and provides loading
 from YAML files with defaults. Configuration sections:
 - FetchConfig: Remote Crawl4AI API fetching settings
-- ExtractConfig: Content extraction settings
 - DedupConfig: Deduplication settings
 - SummaryConfig: LLM summarization settings
 - GroupingConfig: Article grouping settings
@@ -41,6 +40,7 @@ class FetchConfig:
         crawl4ai_api_url: Remote Crawl4AI API URL (required - uses environment variable if not set)
         crawl4ai_api_username: HTTP Basic Auth username (optional, for nginx auth)
         crawl4ai_api_password: HTTP Basic Auth password (optional, for nginx auth)
+        deep_fetch_max_links: Maximum number of deep links to fetch per entry
     """
 
     timeout_seconds: float = 20.0
@@ -60,19 +60,7 @@ class FetchConfig:
     crawl4ai_api_url: str | None = None
     crawl4ai_api_username: str | None = None
     crawl4ai_api_password: str | None = None
-
-
-@dataclass
-class ExtractConfig:
-    """Configuration for HTML content extraction.
-
-    Attributes:
-        primary: Primary extraction method ("trafilatura", "readability", or "bs4")
-        fallback: List of fallback methods to try if primary fails
-    """
-
-    primary: str = "trafilatura"
-    fallback: list[str] = field(default_factory=lambda: ["readability", "bs4"])
+    deep_fetch_max_links: int = 5
 
 
 @dataclass
@@ -142,7 +130,7 @@ class LoggingConfig:
         format: Log file format ("jsonl" or "plain")
         filename: Name of the main log file
         llm_log_enabled: Whether to enable separate LLM interaction logging
-        llm_log_detail: LLM log detail level ("summary_only", "response_only", "prompt_response")
+        llm_log_detail: LLM log detail level ("response_only", "prompt_response")
         llm_log_redaction: Redaction mode for LLM logs ("none", "redact_content", "redact_urls_authors")
         llm_log_file: Name of the LLM log file
     """
@@ -169,6 +157,7 @@ class LangfuseConfig:
         host: Langfuse host URL (optional)
         environment: Langfuse environment label (optional)
         release: Langfuse release identifier (optional)
+        timeout_seconds: Timeout for Langfuse ingestion requests
         redaction: Redaction mode for prompt/response payloads
         max_text_chars: Maximum characters for prompt/response payloads
     """
@@ -179,6 +168,7 @@ class LangfuseConfig:
     host: str | None = None
     environment: str | None = None
     release: str | None = None
+    timeout_seconds: int = 30
     redaction: str = "redact_urls_authors"
     max_text_chars: int = 20000
 
@@ -188,36 +178,21 @@ class CacheConfig:
     """Configuration for caching.
 
     Attributes:
-        mode: "run" for per-run cache, "shared" for persistent shared cache
-        shared_dir: Custom path for shared cache directory
+        enabled: Whether to read from/write to entry cache
         ttl_days: Optional time-to-live for cache entries in days
-        write_index: Whether to write cache index JSONL file
-        index_filename: Name of the cache index file
     """
 
-    mode: str = "run"
-    shared_dir: str | None = None
+    enabled: bool = True
     ttl_days: int | None = None
-    write_index: bool = True
-    index_filename: str = "index.jsonl"
 
 
 @dataclass
 class ProviderConfig:
-    """Configuration for LLM provider.
-
-    Attributes:
-        name: Provider name ("gemini" currently supported)
-        model: Model identifier (e.g., "gemini-3-flash-preview")
-        google_api_key_env: Environment variable name containing the API key
-        base_url: Base URL for the provider API
-        api_key: Optional inline API key (overrides env var)
-        trust_env: Whether to respect system proxy settings for API requests
-    """
+    """Configuration for pluggable LLM providers."""
 
     name: str = "gemini"
     model: str = "gemini-3-flash-preview"
-    google_api_key_env: str = "GOOGLE_API_KEY"
+    api_key_env: str | None = None
     base_url: str = "https://generativelanguage.googleapis.com"
     api_key: str | None = None
     trust_env: bool = True
@@ -229,7 +204,6 @@ class AppConfig:
 
     provider: ProviderConfig = field(default_factory=ProviderConfig)
     fetch: FetchConfig = field(default_factory=FetchConfig)
-    extract: ExtractConfig = field(default_factory=ExtractConfig)
     dedup: DedupConfig = field(default_factory=DedupConfig)
     summary: SummaryConfig = field(default_factory=SummaryConfig)
     grouping: GroupingConfig = field(default_factory=GroupingConfig)
@@ -272,7 +246,7 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
         "provider": {
             "name": cfg.provider.name,
             "model": cfg.provider.model,
-            "google_api_key_env": cfg.provider.google_api_key_env,
+            "api_key_env": cfg.provider.api_key_env,
             "base_url": cfg.provider.base_url,
             "api_key": cfg.provider.api_key,
             "trust_env": cfg.provider.trust_env,
@@ -282,6 +256,7 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "retries": cfg.fetch.retries,
             "trust_env": cfg.fetch.trust_env,
             "user_agent": cfg.fetch.user_agent,
+            "deep_fetch_max_links": cfg.fetch.deep_fetch_max_links,
             "crawl4ai_stealth": cfg.fetch.crawl4ai_stealth,
             "crawl4ai_delay": cfg.fetch.crawl4ai_delay,
             "crawl4ai_simulate_user": cfg.fetch.crawl4ai_simulate_user,
@@ -289,10 +264,6 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "crawl4ai_api_url": cfg.fetch.crawl4ai_api_url,
             "crawl4ai_api_username": cfg.fetch.crawl4ai_api_username,
             "crawl4ai_api_password": cfg.fetch.crawl4ai_api_password,
-        },
-        "extract": {
-            "primary": cfg.extract.primary,
-            "fallback": cfg.extract.fallback,
         },
         "dedup": {
             "enabled": cfg.dedup.enabled,
@@ -330,15 +301,13 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "host": cfg.langfuse.host,
             "environment": cfg.langfuse.environment,
             "release": cfg.langfuse.release,
+            "timeout_seconds": cfg.langfuse.timeout_seconds,
             "redaction": cfg.langfuse.redaction,
             "max_text_chars": cfg.langfuse.max_text_chars,
         },
         "cache": {
-            "mode": cfg.cache.mode,
-            "shared_dir": cfg.cache.shared_dir,
+            "enabled": cfg.cache.enabled,
             "ttl_days": cfg.cache.ttl_days,
-            "write_index": cfg.cache.write_index,
-            "index_filename": cfg.cache.index_filename,
         },
     }
 
@@ -351,18 +320,22 @@ def _fromdict(data: dict[str, Any]) -> AppConfig:
     fetch_data.pop("backend", None)
     fetch_data.pop("fallback_to_httpx", None)
     fetch_data.pop("crawl4ai_concurrency", None)
+    cache_data = data.get("cache", {})
+    cache_data.pop("mode", None)
+    cache_data.pop("shared_dir", None)
+    cache_data.pop("write_index", None)
+    cache_data.pop("index_filename", None)
 
     return AppConfig(
         provider=ProviderConfig(**data["provider"]),
         fetch=FetchConfig(**fetch_data),
-        extract=ExtractConfig(**data["extract"]),
         dedup=DedupConfig(**data["dedup"]),
         summary=SummaryConfig(**data["summary"]),
         grouping=GroupingConfig(**data["grouping"]),
         output=OutputConfig(**data["output"]),
         logging=LoggingConfig(**data["logging"]),
         langfuse=LangfuseConfig(**data.get("langfuse", {})),
-        cache=CacheConfig(**data["cache"]),
+        cache=CacheConfig(**cache_data),
     )
 
 
@@ -370,7 +343,16 @@ def get_api_key(cfg: ProviderConfig) -> str | None:
     """Get API key from inline config or environment variable."""
     if cfg.api_key:
         return cfg.api_key
-    return os.getenv(cfg.google_api_key_env)
+    if cfg.api_key_env:
+        return os.getenv(cfg.api_key_env)
+    defaults = {
+        "gemini": "GOOGLE_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "openai_compatible": "OPENAI_API_KEY",
+        "openai-compatible": "OPENAI_API_KEY",
+    }
+    env_name = defaults.get(cfg.name.lower(), "OPENAI_API_KEY")
+    return os.getenv(env_name)
 
 
 def get_crawl4ai_api_url(cfg: FetchConfig) -> str | None:
