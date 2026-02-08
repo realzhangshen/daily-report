@@ -32,5 +32,5 @@ class AnalysisProvider(ABC):
         decision: dict[str, Any],
         entry_logger: logging.Logger | None = None,
     ) -> str:
-        """Return long-form analysis text."""
+        """Return analysis text."""
         raise NotImplementedError

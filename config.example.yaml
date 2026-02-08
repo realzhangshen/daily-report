@@ -28,6 +28,9 @@ summary:
   bullets_min: 3
   bullets_max: 6
   max_chars: 12000
+  analysis_max_output_tokens: 1200
+  analysis_concurrency: 1
+  enable_deep_fetch_decision: true
 grouping:
   method: provider
   fallback: site

@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 
 from rich.console import Console
 from rich.progress import (
@@ -58,6 +60,93 @@ def _read_cached_analysis(entry: EntryManager, cfg: AppConfig) -> dict | None:
     if cached_analysis and EntryManager.is_entry_valid(entry.folder, cfg.cache.ttl_days):
         return cached_analysis
     return None
+
+
+def _build_cached_result(item: ExtractedArticle, cached_analysis: dict) -> AnalysisResult:
+    return AnalysisResult(
+        article=item.article,
+        analysis=cached_analysis.get("analysis", ""),
+        status=cached_analysis.get("status", "ok"),
+        meta={
+            k: v
+            for k, v in cached_analysis.items()
+            if k not in {"analysis", "status", "article"}
+        },
+    )
+
+
+def _analyze_entries(
+    extracted: list[ExtractedArticle],
+    articles_dir: Path,
+    cfg: AppConfig,
+    analyzer: EntryAnalyzer,
+    logger,
+    progress: Progress | None = None,
+    summarize_task: int | None = None,
+) -> list[AnalysisResult]:
+    concurrency = max(1, int(cfg.summary.analysis_concurrency))
+    if concurrency > 1:
+        log_event(
+            logger,
+            "Analyze concurrency enabled",
+            event="analyze_concurrency_enabled",
+            workers=concurrency,
+        )
+
+    def _advance_progress() -> None:
+        if progress and summarize_task is not None:
+            progress.advance(summarize_task, 1)
+
+    if concurrency == 1:
+        results: list[AnalysisResult] = []
+        for item in extracted:
+            entry = EntryManager(articles_dir, item.article)
+            cached_analysis = _read_cached_analysis(entry, cfg)
+            if cached_analysis:
+                result = _build_cached_result(item, cached_analysis)
+                log_event(
+                    logger,
+                    "Analysis cache hit",
+                    event="analysis_cache_hit",
+                    url=item.article.url,
+                    title=item.article.title,
+                )
+            else:
+                result = analyzer.analyze(item)
+            results.append(result)
+            _advance_progress()
+        return results
+
+    results: list[AnalysisResult | None] = [None] * len(extracted)
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        future_map = {}
+        for idx, item in enumerate(extracted):
+            entry = EntryManager(articles_dir, item.article)
+            cached_analysis = _read_cached_analysis(entry, cfg)
+            if cached_analysis:
+                results[idx] = _build_cached_result(item, cached_analysis)
+                log_event(
+                    logger,
+                    "Analysis cache hit",
+                    event="analysis_cache_hit",
+                    url=item.article.url,
+                    title=item.article.title,
+                )
+                _advance_progress()
+                continue
+            ctx = copy_context()
+            future = executor.submit(ctx.run, analyzer.analyze, item)
+            future_map[future] = idx
+
+        for future in as_completed(future_map):
+            idx = future_map[future]
+            results[idx] = future.result()
+            _advance_progress()
+
+    if any(r is None for r in results):
+        raise RuntimeError("Analysis results incomplete")
+    return [r for r in results if r is not None]
 
 
 def _categorize_error(error: str | None, status_code: int | None) -> str:
@@ -174,31 +263,7 @@ def run_pipeline(
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
-                for item in extracted:
-                    entry = EntryManager(articles_dir, item.article)
-
-                    cached_analysis = _read_cached_analysis(entry, cfg)
-                    if cached_analysis:
-                        result = AnalysisResult(
-                            article=item.article,
-                            analysis=cached_analysis.get("analysis", ""),
-                            status=cached_analysis.get("status", "ok"),
-                            meta={
-                                k: v
-                                for k, v in cached_analysis.items()
-                                if k not in {"analysis", "status", "article"}
-                            },
-                        )
-                        log_event(
-                            logger,
-                            "Analysis cache hit",
-                            event="analysis_cache_hit",
-                            url=item.article.url,
-                            title=item.article.title,
-                        )
-                    else:
-                        result = analyzer.analyze(item)
-                    results.append(result)
+                results = _analyze_entries(extracted, articles_dir, cfg, analyzer, logger)
 
             title = f"Daily Feed Report - {input_path.stem}"
             html_path = run_output_dir / "report.html"
@@ -266,32 +331,15 @@ def run_pipeline(
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
-                for item in extracted:
-                    entry = EntryManager(articles_dir, item.article)
-
-                    cached_analysis = _read_cached_analysis(entry, cfg)
-                    if cached_analysis:
-                        result = AnalysisResult(
-                            article=item.article,
-                            analysis=cached_analysis.get("analysis", ""),
-                            status=cached_analysis.get("status", "ok"),
-                            meta={
-                                k: v
-                                for k, v in cached_analysis.items()
-                                if k not in {"analysis", "status", "article"}
-                            },
-                        )
-                        log_event(
-                            logger,
-                            "Analysis cache hit",
-                            event="analysis_cache_hit",
-                            url=item.article.url,
-                            title=item.article.title,
-                        )
-                    else:
-                        result = analyzer.analyze(item)
-                    results.append(result)
-                    progress.advance(summarize_task, 1)
+                results = _analyze_entries(
+                    extracted,
+                    articles_dir,
+                    cfg,
+                    analyzer,
+                    logger,
+                    progress=progress,
+                    summarize_task=summarize_task,
+                )
             progress.advance(stage_task, 1)
 
             title = f"Daily Feed Report - {input_path.stem}"

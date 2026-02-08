@@ -17,7 +17,7 @@ from .base import AnalysisProvider
 
 
 class GeminiProvider(AnalysisProvider):
-    """Gemini-backed provider for deep-fetch decision and long-form analysis."""
+    """Gemini-backed provider for deep-fetch decision and article analysis."""
 
     def __init__(
         self,
@@ -113,7 +113,10 @@ class GeminiProvider(AnalysisProvider):
         prompt = build_analysis_prompt(article, base_text, deep_texts, decision, self.summary_cfg)
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.25, "maxOutputTokens": 2048},
+            "generationConfig": {
+                "temperature": 0.25,
+                "maxOutputTokens": self.summary_cfg.analysis_max_output_tokens,
+            },
         }
         with start_span(
             "gemini.analyze_entry",

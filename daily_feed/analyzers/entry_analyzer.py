@@ -56,9 +56,23 @@ class EntryAnalyzer:
         base_text = item.text or article.summary or ""
         candidate_links = _extract_links(base_text)
 
-        decision_raw = self.provider.decide_deep_fetch(
-            article, base_text, candidate_links, entry_logger=entry_logger
-        )
+        decision_raw: dict[str, Any]
+        if self.cfg.summary.enable_deep_fetch_decision and candidate_links:
+            decision_raw = self.provider.decide_deep_fetch(
+                article, base_text, candidate_links, entry_logger=entry_logger
+            )
+        elif not self.cfg.summary.enable_deep_fetch_decision:
+            decision_raw = {
+                "need_deep_fetch": False,
+                "urls": [],
+                "rationale": "disabled_by_config",
+            }
+        else:
+            decision_raw = {
+                "need_deep_fetch": False,
+                "urls": [],
+                "rationale": "no_candidate_links",
+            }
         decision = DeepFetchDecision(
             need_deep_fetch=bool(decision_raw.get("need_deep_fetch")),
             urls=list(decision_raw.get("urls") or []),

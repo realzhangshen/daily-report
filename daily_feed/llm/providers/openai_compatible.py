@@ -117,7 +117,7 @@ class OpenAICompatibleProvider(AnalysisProvider):
             "model": self.cfg.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.25,
-            "max_tokens": 2048,
+            "max_tokens": self.summary_cfg.analysis_max_output_tokens,
         }
         with start_span(
             "openai_compatible.analyze_entry",

@@ -28,7 +28,10 @@ dedup:
 summary:
   bullets_min: 3
   bullets_max: 6
-  max_chars: 12000
+  max_chars: 5000
+  analysis_max_output_tokens: 900
+  analysis_concurrency: 4
+  enable_deep_fetch_decision: false
 grouping:
   method: provider
   fallback: site

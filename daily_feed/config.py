@@ -84,11 +84,17 @@ class SummaryConfig:
         bullets_min: Minimum number of bullet points to generate
         bullets_max: Maximum number of bullet points to generate
         max_chars: Maximum characters of article text to send to LLM
+        analysis_max_output_tokens: Max output tokens for per-entry analysis call
+        analysis_concurrency: Number of parallel workers for per-entry analysis
+        enable_deep_fetch_decision: Whether to run LLM deep-fetch decision step
     """
 
     bullets_min: int = 3
     bullets_max: int = 6
     max_chars: int = 12000
+    analysis_max_output_tokens: int = 1200
+    analysis_concurrency: int = 1
+    enable_deep_fetch_decision: bool = True
 
 
 @dataclass
@@ -273,6 +279,9 @@ def _asdict(cfg: AppConfig) -> dict[str, Any]:
             "bullets_min": cfg.summary.bullets_min,
             "bullets_max": cfg.summary.bullets_max,
             "max_chars": cfg.summary.max_chars,
+            "analysis_max_output_tokens": cfg.summary.analysis_max_output_tokens,
+            "analysis_concurrency": cfg.summary.analysis_concurrency,
+            "enable_deep_fetch_decision": cfg.summary.enable_deep_fetch_decision,
         },
         "grouping": {
             "method": cfg.grouping.method,
