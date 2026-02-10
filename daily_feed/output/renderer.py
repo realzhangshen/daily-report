@@ -160,3 +160,44 @@ def render_markdown(results: list[AnalysisResult], output_path: Path, title: str
             lines.append("")
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def render_briefing(
+    briefing,
+    extractions: list,
+    output_path: Path,
+    title: str,
+) -> None:
+    """Render a BriefingResult as an HTML report.
+
+    Takes a synthesized briefing and the list of extraction results,
+    builds a title-to-article lookup for hyperlinking, and renders
+    the briefing.html Jinja2 template.
+
+    Args:
+        briefing: A BriefingResult object with executive_summary,
+            top_stories, sections, quick_mentions, and raw_text
+        extractions: List of ExtractionResult objects (used to build
+            title -> Article mapping for URL linking)
+        output_path: Path where the HTML file will be written
+        title: Report title displayed in the header
+    """
+    env = Environment(
+        loader=FileSystemLoader(str(Path(__file__).parent / "templates")),
+        autoescape=select_autoescape(["html"]),
+    )
+    template = env.get_template("briefing.html")
+
+    # Build title->article lookup for linking
+    articles_by_title = {}
+    for ext in extractions:
+        articles_by_title[ext.article.title] = ext.article
+
+    html = template.render(
+        title=title,
+        generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        total=len(extractions),
+        briefing=briefing,
+        articles_by_title=articles_by_title,
+    )
+    output_path.write_text(html, encoding="utf-8")
