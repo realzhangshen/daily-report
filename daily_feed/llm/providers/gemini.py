@@ -21,6 +21,38 @@ from ..tracing import record_span_error, set_span_output, start_span
 from .base import AnalysisProvider
 
 
+_DEEP_FETCH_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "need_deep_fetch": {"type": "BOOLEAN"},
+        "urls": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "rationale": {"type": "STRING"},
+    },
+    "required": ["need_deep_fetch", "urls", "rationale"],
+}
+
+
+_EXTRACTION_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "one_line_summary": {"type": "STRING"},
+        "category": {"type": "STRING"},
+        "tags": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "importance": {"type": "INTEGER"},
+        "content_type": {"type": "STRING"},
+        "key_takeaway": {"type": "STRING"},
+    },
+    "required": [
+        "one_line_summary",
+        "category",
+        "tags",
+        "importance",
+        "content_type",
+        "key_takeaway",
+    ],
+}
+
+
 class GeminiProvider(AnalysisProvider):
     """Gemini-backed provider for deep-fetch decision and article analysis."""
 
@@ -50,7 +82,12 @@ class GeminiProvider(AnalysisProvider):
         prompt = build_deep_fetch_prompt(article, text, candidate_links, self.summary_cfg)
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 512},
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 512,
+                "responseMimeType": "application/json",
+                "responseSchema": _DEEP_FETCH_RESPONSE_SCHEMA,
+            },
         }
         with start_span(
             "gemini.decide_deep_fetch",
@@ -166,13 +203,11 @@ class GeminiProvider(AnalysisProvider):
         entry_logger: logging.Logger | None = None,
     ) -> dict[str, Any]:
         prompt = build_extraction_prompt(article, base_text, self.summary_cfg)
-        payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": self.summary_cfg.extraction_max_output_tokens,
-            },
-        }
+        payload = self._build_extraction_payload(
+            prompt=prompt,
+            temperature=0.1,
+            max_output_tokens=max(self.summary_cfg.extraction_max_output_tokens, 2048),
+        )
         with start_span(
             "gemini.extract_entry",
             kind="llm",
@@ -185,7 +220,7 @@ class GeminiProvider(AnalysisProvider):
             },
         ) as span:
             try:
-                data = self._post(payload)
+                data = self._post(payload, timeout=60.0)
                 content = _extract_text(data)
                 set_span_output(span, content)
                 obj = _parse_json_response(content)
@@ -208,18 +243,77 @@ class GeminiProvider(AnalysisProvider):
                     prompt=prompt,
                     logger=entry_logger,
                 )
-                return {"summary": article.title, "error": "provider_error"}
+                return {
+                    "one_line_summary": article.title,
+                    "category": "other",
+                    "tags": [],
+                    "importance": 3,
+                    "content_type": "news",
+                    "key_takeaway": "",
+                    "status": "provider_error",
+                    "error": "provider_error",
+                }
             except json.JSONDecodeError as exc:
-                record_span_error(span, exc)
-                self._log_llm_response(
-                    article=article,
-                    event="llm_extract_entry",
-                    status="parse_error",
-                    content=content,
+                retry_payload = self._build_extraction_payload(
                     prompt=prompt,
-                    logger=entry_logger,
+                    temperature=0.0,
+                    max_output_tokens=max(self.summary_cfg.extraction_max_output_tokens, 3072),
                 )
-                return {"summary": article.title, "error": "parse_error"}
+                retry_content = content
+                try:
+                    retry_data = self._post(retry_payload, timeout=90.0)
+                    retry_content = _extract_text(retry_data)
+                    set_span_output(span, retry_content)
+                    obj = _parse_json_response(retry_content)
+                    self._log_llm_response(
+                        article=article,
+                        event="llm_extract_entry",
+                        status="ok_retry",
+                        content=retry_content,
+                        prompt=prompt,
+                        logger=entry_logger,
+                    )
+                    return obj
+                except httpx.HTTPError as retry_exc:
+                    record_span_error(span, retry_exc)
+                    self._log_llm_response(
+                        article=article,
+                        event="llm_extract_entry",
+                        status="provider_error",
+                        content=str(retry_exc),
+                        prompt=prompt,
+                        logger=entry_logger,
+                    )
+                    return {
+                        "one_line_summary": article.title,
+                        "category": "other",
+                        "tags": [],
+                        "importance": 3,
+                        "content_type": "news",
+                        "key_takeaway": "",
+                        "status": "provider_error",
+                        "error": "provider_error",
+                    }
+                except json.JSONDecodeError as retry_parse_exc:
+                    record_span_error(span, retry_parse_exc)
+                    self._log_llm_response(
+                        article=article,
+                        event="llm_extract_entry",
+                        status="parse_error",
+                        content=retry_content,
+                        prompt=prompt,
+                        logger=entry_logger,
+                    )
+                    return {
+                        "one_line_summary": article.title,
+                        "category": "other",
+                        "tags": [],
+                        "importance": 3,
+                        "content_type": "news",
+                        "key_takeaway": "",
+                        "status": "parse_error",
+                        "error": "parse_error",
+                    }
 
     def synthesize(
         self,
@@ -279,6 +373,22 @@ class GeminiProvider(AnalysisProvider):
             resp.raise_for_status()
             return resp.json()
 
+    def _build_extraction_payload(
+        self,
+        prompt: str,
+        temperature: float,
+        max_output_tokens: int,
+    ) -> dict[str, Any]:
+        return {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_output_tokens,
+                "responseMimeType": "application/json",
+                "responseSchema": _EXTRACTION_RESPONSE_SCHEMA,
+            },
+        }
+
     def _log_llm_response(
         self,
         article: Article,
@@ -312,9 +422,31 @@ class GeminiProvider(AnalysisProvider):
 
 def _extract_text(data: dict[str, Any]) -> str:
     try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        parts = data["candidates"][0]["content"]["parts"]
     except Exception:  # noqa: BLE001
         return ""
+
+    if not isinstance(parts, list):
+        return ""
+
+    non_thought_chunks: list[str] = []
+    all_chunks: list[str] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text")
+        if text is None:
+            continue
+        chunk = str(text)
+        if not chunk:
+            continue
+        all_chunks.append(chunk)
+        if not bool(part.get("thought")):
+            non_thought_chunks.append(chunk)
+
+    if non_thought_chunks:
+        return "".join(non_thought_chunks)
+    return "".join(all_chunks)
 
 
 def _parse_json_response(content: str) -> dict[str, Any]:

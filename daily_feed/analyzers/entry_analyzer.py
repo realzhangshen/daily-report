@@ -38,16 +38,45 @@ class EntryAnalyzer:
             article, base_text, entry_logger=entry_logger
         )
 
+        raw_error = str(raw.get("error") or "").strip()
+        status = str(raw.get("status") or "").strip()
+        if not status:
+            status = raw_error or "ok"
+
+        one_line_summary = (
+            str(raw.get("one_line_summary") or raw.get("summary") or article.title).strip()
+            or article.title
+        )
+        category = str(raw.get("category") or "other").strip() or "other"
+        content_type = str(raw.get("content_type") or "news").strip() or "news"
+        key_takeaway = str(raw.get("key_takeaway") or "").strip()
+
+        tags_value = raw.get("tags") or []
+        tags: list[str] = []
+        if isinstance(tags_value, list):
+            tags = [str(tag).strip() for tag in tags_value if str(tag).strip()]
+
+        importance_raw = raw.get("importance", 3)
+        try:
+            importance = int(importance_raw)
+        except (TypeError, ValueError):
+            importance = 3
+        importance = max(1, min(5, importance))
+
+        meta = {"model": self.provider.cfg.model}
+        if raw_error:
+            meta["error"] = raw_error
+
         result = ExtractionResult(
             article=article,
-            one_line_summary=str(raw.get("one_line_summary", article.title)),
-            category=str(raw.get("category", "other")),
-            tags=list(raw.get("tags") or []),
-            importance=int(raw.get("importance", 3)),
-            content_type=str(raw.get("content_type", "news")),
-            key_takeaway=str(raw.get("key_takeaway", "")),
-            status="ok",
-            meta={"model": self.provider.cfg.model},
+            one_line_summary=one_line_summary,
+            category=category,
+            tags=tags,
+            importance=importance,
+            content_type=content_type,
+            key_takeaway=key_takeaway,
+            status=status,
+            meta=meta,
         )
 
         entry.write_extraction_result(result)

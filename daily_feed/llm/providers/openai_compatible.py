@@ -208,7 +208,16 @@ class OpenAICompatibleProvider(AnalysisProvider):
                     prompt=prompt,
                     logger=entry_logger,
                 )
-                return {"summary": article.title, "error": "provider_error"}
+                return {
+                    "one_line_summary": article.title,
+                    "category": "other",
+                    "tags": [],
+                    "importance": 3,
+                    "content_type": "news",
+                    "key_takeaway": "",
+                    "status": "provider_error",
+                    "error": "provider_error",
+                }
             except json.JSONDecodeError as exc:
                 record_span_error(span, exc)
                 self._log_llm_response(
@@ -219,7 +228,16 @@ class OpenAICompatibleProvider(AnalysisProvider):
                     prompt=prompt,
                     logger=entry_logger,
                 )
-                return {"summary": article.title, "error": "parse_error"}
+                return {
+                    "one_line_summary": article.title,
+                    "category": "other",
+                    "tags": [],
+                    "importance": 3,
+                    "content_type": "news",
+                    "key_takeaway": "",
+                    "status": "parse_error",
+                    "error": "parse_error",
+                }
 
     def synthesize(
         self,
