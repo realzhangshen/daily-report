@@ -20,6 +20,25 @@ daily-feed --input data/folo-export-2026-02-03.json --output out --config config
 daily-feed --input data/folo-export-2026-02-03.json --output out --config config.example.yaml --no-use-cache
 ```
 
+## Rebucket Exports By Day (22:00 Cutoff)
+
+When you have multiple raw exports under `data/`, you can merge/deduplicate
+and split them into per-day feeds using a local 22:00 boundary:
+
+```bash
+/usr/bin/python3 tools/rebucket_data.py \
+  --input-dir data \
+  --output-dir data/daily_feeds \
+  --cutoff 22:00
+```
+
+Generated files:
+
+```text
+data/daily_feeds/feed-YYYY-MM-DD.json
+data/daily_feeds/manifest.json
+```
+
 Output will be written to a subfolder under `out/` named after the input file stem, for example:
 
 ```text
