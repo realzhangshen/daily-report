@@ -140,6 +140,15 @@ class EntryManager:
         return self.folder / "analysis.json"
 
     @property
+    def extraction_raw(self) -> Path:
+        """Returns path to the extraction result JSON file.
+
+        Returns:
+            Path object for extraction.json
+        """
+        return self.folder / "extraction.json"
+
+    @property
     def analysis_debug(self) -> Path:
         """Returns path to the analysis debug JSONL file.
 
@@ -218,6 +227,41 @@ class EntryManager:
             meta = json.load(f)
         meta["analysis"] = analysis_text
         return meta
+
+    def write_extraction_result(self, result) -> None:
+        """Write extraction result to cache.
+
+        Args:
+            result: The ExtractionResult object to write
+        """
+        data = {
+            "one_line_summary": result.one_line_summary,
+            "category": result.category,
+            "tags": result.tags,
+            "importance": result.importance,
+            "content_type": result.content_type,
+            "key_takeaway": result.key_takeaway,
+            "status": result.status,
+            "article": {
+                "title": result.article.title,
+                "url": result.article.url,
+                "site": result.article.site,
+            },
+        }
+        data.update(result.meta or {})
+        with open(self.extraction_raw, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def read_extraction_result(self) -> dict[str, Any] | None:
+        """Read extraction result from cache.
+
+        Returns:
+            Dictionary with extraction data, or None if file is missing
+        """
+        if not self.extraction_raw.exists():
+            return None
+        with open(self.extraction_raw, "r", encoding="utf-8") as f:
+            return json.load(f)
 
     def get_llm_logger(self) -> logging.Logger | None:
         """Get or create logger for this entry's LLM interactions.
