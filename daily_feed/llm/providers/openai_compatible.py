@@ -11,7 +11,12 @@ import httpx
 from ...config import LoggingConfig, ProviderConfig, SummaryConfig
 from ...core.types import Article
 from ...utils.logging import log_event, redact_text, redact_value, truncate_text
-from ..prompts import build_analysis_prompt, build_deep_fetch_prompt
+from ..prompts import (
+    build_analysis_prompt,
+    build_deep_fetch_prompt,
+    build_extraction_prompt,
+    build_synthesis_prompt,
+)
 from ..tracing import record_span_error, set_span_output, start_span
 from .base import AnalysisProvider
 
@@ -155,14 +160,126 @@ class OpenAICompatibleProvider(AnalysisProvider):
                 )
                 return f"Provider error: {type(exc).__name__}"
 
-    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def extract_entry(
+        self,
+        article: Article,
+        base_text: str,
+        entry_logger: logging.Logger | None = None,
+    ) -> dict[str, Any]:
+        prompt = build_extraction_prompt(article, base_text, self.summary_cfg)
+        payload = {
+            "model": self.cfg.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": self.summary_cfg.extraction_max_output_tokens,
+        }
+        with start_span(
+            "openai_compatible.extract_entry",
+            kind="llm",
+            input_value=prompt,
+            attributes={
+                "llm.model": self.cfg.model,
+                "llm.provider": self.cfg.name,
+                "article.title": article.title,
+                "article.site": article.site,
+            },
+        ) as span:
+            try:
+                data = self._post(payload)
+                content = _extract_text(data)
+                set_span_output(span, content)
+                obj = _parse_json_response(content)
+                self._log_llm_response(
+                    article=article,
+                    event="llm_extract_entry",
+                    status="ok",
+                    content=content,
+                    prompt=prompt,
+                    logger=entry_logger,
+                )
+                return obj
+            except httpx.HTTPError as exc:
+                record_span_error(span, exc)
+                self._log_llm_response(
+                    article=article,
+                    event="llm_extract_entry",
+                    status="provider_error",
+                    content=str(exc),
+                    prompt=prompt,
+                    logger=entry_logger,
+                )
+                return {"summary": article.title, "error": "provider_error"}
+            except json.JSONDecodeError as exc:
+                record_span_error(span, exc)
+                self._log_llm_response(
+                    article=article,
+                    event="llm_extract_entry",
+                    status="parse_error",
+                    content=content,
+                    prompt=prompt,
+                    logger=entry_logger,
+                )
+                return {"summary": article.title, "error": "parse_error"}
+
+    def synthesize(
+        self,
+        extractions: list[dict[str, Any]],
+        logger: logging.Logger | None = None,
+    ) -> str:
+        prompt = build_synthesis_prompt(extractions, self.summary_cfg)
+        payload = {
+            "model": self.cfg.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.4,
+            "max_tokens": self.summary_cfg.synthesis_max_output_tokens,
+        }
+        with start_span(
+            "openai_compatible.synthesize",
+            kind="llm",
+            input_value=prompt,
+            attributes={
+                "llm.model": self.cfg.model,
+                "llm.provider": self.cfg.name,
+                "extraction.count": len(extractions),
+            },
+        ) as span:
+            try:
+                data = self._post(payload, timeout=120.0)
+                content = _extract_text(data)
+                set_span_output(span, content)
+                if logger:
+                    log_event(
+                        logger,
+                        "LLM response",
+                        event="llm_synthesize",
+                        status="ok",
+                        model=self.cfg.model,
+                        provider=self.cfg.name,
+                        extraction_count=len(extractions),
+                    )
+                return content.strip()
+            except httpx.HTTPError as exc:
+                record_span_error(span, exc)
+                if logger:
+                    log_event(
+                        logger,
+                        "LLM response",
+                        event="llm_synthesize",
+                        status="provider_error",
+                        model=self.cfg.model,
+                        provider=self.cfg.name,
+                        error=str(exc),
+                    )
+                return f"Provider error: {type(exc).__name__}"
+
+    def _post(self, payload: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
         base = self.cfg.base_url.rstrip("/")
         url = f"{base}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        with httpx.Client(timeout=30.0, trust_env=self.cfg.trust_env) as client:
+        with httpx.Client(timeout=timeout, trust_env=self.cfg.trust_env) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             return resp.json()

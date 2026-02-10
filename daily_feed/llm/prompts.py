@@ -73,3 +73,31 @@ def build_analysis_prompt(
         primary_content=base_trimmed,
         additional_sources=deep_block,
     )
+
+
+def build_extraction_prompt(
+    article: Article,
+    base_text: str,
+    cfg: SummaryConfig,
+) -> str:
+    trimmed = base_text[: cfg.max_chars]
+    return _render_template(
+        "extraction",
+        title=article.title,
+        site=article.site,
+        author=article.author or "",
+        content=trimmed,
+    )
+
+
+def build_synthesis_prompt(
+    extractions: list[dict[str, Any]],
+    cfg: SummaryConfig,
+) -> str:
+    import json as _json
+    extractions_json = _json.dumps(extractions, ensure_ascii=False, indent=2)
+    return _render_template(
+        "synthesis",
+        count=str(len(extractions)),
+        extractions_json=extractions_json,
+    )

@@ -34,3 +34,22 @@ class AnalysisProvider(ABC):
     ) -> str:
         """Return analysis text."""
         raise NotImplementedError
+
+    @abstractmethod
+    def extract_entry(
+        self,
+        article: Article,
+        base_text: str,
+        entry_logger: logging.Logger | None = None,
+    ) -> dict[str, Any]:
+        """Return structured extraction JSON dict."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def synthesize(
+        self,
+        extractions: list[dict[str, Any]],
+        logger: logging.Logger | None = None,
+    ) -> str:
+        """Return synthesis markdown text."""
+        raise NotImplementedError
