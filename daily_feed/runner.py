@@ -2,11 +2,12 @@
 Main pipeline orchestration for the Daily Feed Agent.
 
 This module coordinates the entire workflow:
-1. Parse markdown input
+1. Parse JSON input
 2. Deduplicate articles
 3. Fetch and extract content (via remote Crawl4AI API only)
-4. Analyze each entry via LLM (with optional deep fetch)
-5. Render output files
+4. Extract structured metadata per entry (Pass 1)
+5. Synthesize daily briefing (Pass 2)
+6. Render output files
 
 Supports both progress bar and quiet modes. Fetching is done exclusively
 through the remote Crawl4AI API service.
@@ -36,7 +37,7 @@ from rich.progress import (
 from .config import AppConfig
 from .core.dedup import dedup_articles
 from .core.entry import EntryManager
-from .core.types import AnalysisResult, ExtractedArticle
+from .core.types import ExtractionResult, ExtractedArticle
 from .config import get_crawl4ai_api_url, get_crawl4ai_api_auth
 from .fetch.fetcher import fetch_url_crawl4ai_api
 from .utils.logging import log_event, setup_logging
@@ -44,7 +45,8 @@ from .input.json_parser import parse_folo_json
 from .llm.tracing import set_span_output, setup_langfuse, start_span
 from .llm.providers import create_provider
 from .analyzers.entry_analyzer import EntryAnalyzer
-from .output.renderer import render_html, render_markdown
+from .output.renderer import render_briefing, render_html, render_markdown
+from .analyzers.synthesizer import Synthesizer
 
 
 def _is_cache_enabled(cfg: AppConfig) -> bool:
@@ -52,101 +54,87 @@ def _is_cache_enabled(cfg: AppConfig) -> bool:
     return cfg.cache.enabled
 
 
-def _read_cached_analysis(entry: EntryManager, cfg: AppConfig) -> dict | None:
-    """Read cached analysis only when cache is enabled and valid."""
+def _read_cached_extraction(entry: EntryManager, cfg: AppConfig) -> dict | None:
+    """Read cached extraction only when cache is enabled and valid."""
     if not _is_cache_enabled(cfg):
         return None
-    cached_analysis = entry.read_analysis_result()
-    if cached_analysis and EntryManager.is_entry_valid(entry.folder, cfg.cache.ttl_days):
-        return cached_analysis
+    cached = entry.read_extraction_result()
+    if cached and EntryManager.is_entry_valid(entry.folder, cfg.cache.ttl_days):
+        return cached
     return None
 
 
-def _build_cached_result(item: ExtractedArticle, cached_analysis: dict) -> AnalysisResult:
-    return AnalysisResult(
+def _build_cached_extraction(item: ExtractedArticle, cached: dict) -> ExtractionResult:
+    return ExtractionResult(
         article=item.article,
-        analysis=cached_analysis.get("analysis", ""),
-        status=cached_analysis.get("status", "ok"),
-        meta={
-            k: v
-            for k, v in cached_analysis.items()
-            if k not in {"analysis", "status", "article"}
-        },
+        one_line_summary=cached.get("one_line_summary", item.article.title),
+        category=cached.get("category", "other"),
+        tags=cached.get("tags", []),
+        importance=cached.get("importance", 3),
+        content_type=cached.get("content_type", "news"),
+        key_takeaway=cached.get("key_takeaway", ""),
+        status=cached.get("status", "ok"),
+        meta={k: v for k, v in cached.items() if k not in {
+            "one_line_summary", "category", "tags", "importance",
+            "content_type", "key_takeaway", "status", "article"
+        }},
     )
 
 
-def _analyze_entries(
+def _extract_entries(
     extracted: list[ExtractedArticle],
     articles_dir: Path,
     cfg: AppConfig,
     analyzer: EntryAnalyzer,
     logger,
     progress: Progress | None = None,
-    summarize_task: int | None = None,
-) -> list[AnalysisResult]:
+    extract_task: int | None = None,
+) -> list[ExtractionResult]:
     concurrency = max(1, int(cfg.summary.analysis_concurrency))
     if concurrency > 1:
-        log_event(
-            logger,
-            "Analyze concurrency enabled",
-            event="analyze_concurrency_enabled",
-            workers=concurrency,
-        )
+        log_event(logger, "Extract concurrency enabled", event="extract_concurrency_enabled", workers=concurrency)
 
     def _advance_progress() -> None:
-        if progress and summarize_task is not None:
-            progress.advance(summarize_task, 1)
+        if progress and extract_task is not None:
+            progress.advance(extract_task, 1)
 
     if concurrency == 1:
-        results: list[AnalysisResult] = []
+        results: list[ExtractionResult] = []
         for item in extracted:
             entry = EntryManager(articles_dir, item.article)
-            cached_analysis = _read_cached_analysis(entry, cfg)
-            if cached_analysis:
-                result = _build_cached_result(item, cached_analysis)
-                log_event(
-                    logger,
-                    "Analysis cache hit",
-                    event="analysis_cache_hit",
-                    url=item.article.url,
-                    title=item.article.title,
-                )
+            cached = _read_cached_extraction(entry, cfg)
+            if cached:
+                result = _build_cached_extraction(item, cached)
+                log_event(logger, "Extraction cache hit", event="extraction_cache_hit", url=item.article.url)
             else:
-                result = analyzer.analyze(item)
+                result = analyzer.extract(item)
             results.append(result)
             _advance_progress()
         return results
 
-    results: list[AnalysisResult | None] = [None] * len(extracted)
-
+    results_list: list[ExtractionResult | None] = [None] * len(extracted)
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_map = {}
         for idx, item in enumerate(extracted):
             entry = EntryManager(articles_dir, item.article)
-            cached_analysis = _read_cached_analysis(entry, cfg)
-            if cached_analysis:
-                results[idx] = _build_cached_result(item, cached_analysis)
-                log_event(
-                    logger,
-                    "Analysis cache hit",
-                    event="analysis_cache_hit",
-                    url=item.article.url,
-                    title=item.article.title,
-                )
+            cached = _read_cached_extraction(entry, cfg)
+            if cached:
+                results_list[idx] = _build_cached_extraction(item, cached)
+                log_event(logger, "Extraction cache hit", event="extraction_cache_hit", url=item.article.url)
                 _advance_progress()
                 continue
             ctx = copy_context()
-            future = executor.submit(ctx.run, analyzer.analyze, item)
+            future = executor.submit(ctx.run, analyzer.extract, item)
             future_map[future] = idx
 
         for future in as_completed(future_map):
             idx = future_map[future]
-            results[idx] = future.result()
+            results_list[idx] = future.result()
             _advance_progress()
 
-    if any(r is None for r in results):
-        raise RuntimeError("Analysis results incomplete")
-    return [r for r in results if r is not None]
+    if any(r is None for r in results_list):
+        raise RuntimeError("Extraction results incomplete")
+    return [r for r in results_list if r is not None]
 
 
 def _categorize_error(error: str | None, status_code: int | None) -> str:
@@ -254,34 +242,35 @@ def run_pipeline(
                     articles, articles_dir, cfg, logger
                 )
             _render_fetch_stats(stats, console or Console())
+
+            # Stage 4: Extract (Pass 1)
             provider = _build_provider(cfg, None)
             analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
-
-            results: list[AnalysisResult] = []
             with start_span(
-                "daily_feed.analyze_batch",
+                "daily_feed.extract_batch",
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
-                results = _analyze_entries(extracted, articles_dir, cfg, analyzer, logger)
+                extractions = _extract_entries(extracted, articles_dir, cfg, analyzer, logger)
 
-            title = f"Daily Feed Report - {input_path.stem}"
+            # Stage 5: Synthesize (Pass 2)
+            synthesizer = Synthesizer(cfg, provider, logger)
+            briefing = synthesizer.synthesize(extractions)
+
+            # Stage 6: Render
+            title = f"Daily Feed - {input_path.stem}"
             html_path = run_output_dir / "report.html"
-            render_html(results, html_path, title)
-
-            if cfg.output.include_markdown:
-                md_path = run_output_dir / "report.md"
-                render_markdown(results, md_path, title)
+            render_briefing(briefing, extractions, html_path, title)
 
             log_event(
                 logger,
                 "Pipeline complete",
                 event="pipeline_complete",
                 output=str(html_path),
-                total=len(results),
+                total=len(extractions),
             )
             set_span_output(
-                run_span, {"report": str(html_path), "total": len(results)}
+                run_span, {"report": str(html_path), "total": len(extractions)}
             )
             return html_path
 
@@ -296,7 +285,7 @@ def run_pipeline(
         )
 
         with progress:
-            stage_task = progress.add_task("Stages", total=5)
+            stage_task = progress.add_task("Stages", total=6)
 
             # Load JSON input file
             with open(input_path, encoding="utf-8") as f:
@@ -321,34 +310,35 @@ def run_pipeline(
             _render_fetch_stats(stats, console)
             progress.advance(stage_task, 1)
 
+            # Stage 4: Extract (Pass 1)
             provider = _build_provider(cfg, None)
             analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
 
-            summarize_task = progress.add_task("Analyze", total=len(extracted))
-            results: list[AnalysisResult] = []
+            extract_task = progress.add_task("Extract", total=len(extracted))
             with start_span(
-                "daily_feed.analyze_batch",
+                "daily_feed.extract_batch",
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
-                results = _analyze_entries(
+                extractions = _extract_entries(
                     extracted,
                     articles_dir,
                     cfg,
                     analyzer,
                     logger,
                     progress=progress,
-                    summarize_task=summarize_task,
+                    extract_task=extract_task,
                 )
             progress.advance(stage_task, 1)
 
-            title = f"Daily Feed Report - {input_path.stem}"
-            html_path = run_output_dir / "report.html"
-            render_html(results, html_path, title)
+            # Stage 5: Synthesize (Pass 2)
+            synthesizer = Synthesizer(cfg, provider, logger)
+            briefing = synthesizer.synthesize(extractions)
 
-            if cfg.output.include_markdown:
-                md_path = run_output_dir / "report.md"
-                render_markdown(results, md_path, title)
+            # Stage 6: Render
+            title = f"Daily Feed - {input_path.stem}"
+            html_path = run_output_dir / "report.html"
+            render_briefing(briefing, extractions, html_path, title)
 
             progress.advance(stage_task, 1)
             log_event(
@@ -356,10 +346,10 @@ def run_pipeline(
                 "Pipeline complete",
                 event="pipeline_complete",
                 output=str(html_path),
-                total=len(results),
+                total=len(extractions),
             )
             set_span_output(
-                run_span, {"report": str(html_path), "total": len(results)}
+                run_span, {"report": str(html_path), "total": len(extractions)}
             )
 
         return html_path

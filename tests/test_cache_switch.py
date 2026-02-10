@@ -9,7 +9,7 @@ from pathlib import Path
 
 from daily_feed.config import AppConfig
 from daily_feed.core.entry import EntryManager
-from daily_feed.core.types import AnalysisResult, Article
+from daily_feed.core.types import AnalysisResult, Article, ExtractionResult
 from daily_feed.fetch.fetcher import FetchResult
 from daily_feed import runner
 
@@ -85,16 +85,21 @@ def test_fetch_bypasses_cache_when_disabled(monkeypatch):
         assert entry.extracted_txt.read_text(encoding="utf-8") == "stale cache text"
 
 
-def test_analysis_cache_respects_cache_enabled_switch():
+def test_extraction_cache_respects_cache_enabled_switch():
     with tempfile.TemporaryDirectory() as tmpdir:
         articles_dir = Path(tmpdir)
-        article = Article(title="Analysis Item", site="Test", url="https://example.com/analysis")
+        article = Article(title="Extraction Item", site="Test", url="https://example.com/extraction")
         entry = EntryManager(articles_dir, article)
         entry.ensure_folder()
-        entry.write_analysis_result(
-            AnalysisResult(
+        entry.write_extraction_result(
+            ExtractionResult(
                 article=article,
-                analysis="cached analysis",
+                one_line_summary="cached summary",
+                category="tech",
+                tags=["ai"],
+                importance=5,
+                content_type="news",
+                key_takeaway="key point",
                 status="ok",
                 meta={"model": "test-model"},
             )
@@ -102,10 +107,10 @@ def test_analysis_cache_respects_cache_enabled_switch():
 
         cfg = AppConfig()
         cfg.cache.enabled = True
-        cached = runner._read_cached_analysis(entry, cfg)  # noqa: SLF001
+        cached = runner._read_cached_extraction(entry, cfg)  # noqa: SLF001
         assert cached is not None
-        assert cached.get("analysis") == "cached analysis"
+        assert cached.get("one_line_summary") == "cached summary"
 
         cfg.cache.enabled = False
-        cached_disabled = runner._read_cached_analysis(entry, cfg)  # noqa: SLF001
+        cached_disabled = runner._read_cached_extraction(entry, cfg)  # noqa: SLF001
         assert cached_disabled is None
