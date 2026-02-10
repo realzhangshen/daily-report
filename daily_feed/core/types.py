@@ -75,3 +75,35 @@ class AnalysisResult:
     analysis: str = ""
     status: str = "ok"
     meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ExtractionResult:
+    """Structured metadata extracted from an article by Pass 1."""
+    article: Article
+    one_line_summary: str = ""
+    category: str = ""
+    tags: list[str] = field(default_factory=list)
+    importance: int = 3
+    content_type: str = ""
+    key_takeaway: str = ""
+    status: str = "ok"
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class BriefingSection:
+    """A themed section in the daily briefing."""
+    theme: str
+    description: str
+    items: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class BriefingResult:
+    """Complete daily briefing produced by Pass 2 synthesis."""
+    executive_summary: str = ""
+    top_stories: list[dict[str, Any]] = field(default_factory=list)
+    sections: list[BriefingSection] = field(default_factory=list)
+    quick_mentions: list[dict[str, Any]] = field(default_factory=list)
+    raw_text: str = ""

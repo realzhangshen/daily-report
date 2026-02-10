@@ -26,10 +26,9 @@ dedup:
   enabled: true
   title_similarity_threshold: 92
 summary:
-  bullets_min: 3
-  bullets_max: 6
-  max_chars: 5000
-  analysis_max_output_tokens: 900
+  max_chars: 10000
+  extraction_max_output_tokens: 300
+  synthesis_max_output_tokens: 4096
   analysis_concurrency: 4
   enable_deep_fetch_decision: false
 grouping:
