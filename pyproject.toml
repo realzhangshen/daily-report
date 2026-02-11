@@ -1,7 +1,7 @@
 [project]
-name = "daily-feed"
+name = "daily-report"
 version = "0.1.0"
-description = "Daily feed summarizer CLI"
+description = "Daily report summarizer CLI"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -20,18 +20,18 @@ dependencies = [
 ]
 
 [project.scripts]
-daily-feed = "daily_feed.cli:app"
+daily-report = "daily_report.cli:app"
 
 [build-system]
 requires = ["setuptools>=68.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["daily_feed"]
+packages = ["daily_report"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-daily_feed = ["output/templates/*.html", "prompts/*.md"]
+daily_report = ["output/templates/*.html", "prompts/*.md"]
 
 [tool.uv]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

@@ -38,7 +38,7 @@ def setup_logging(cfg: LoggingConfig, run_output_dir: Path | None) -> logging.Lo
     Returns:
         Configured logger instance
     """
-    logger = logging.getLogger("daily_feed")
+    logger = logging.getLogger("daily_report")
     logger.setLevel(_level_from_string(cfg.level))
     logger.handlers = []
     logger.propagate = False
@@ -78,7 +78,7 @@ def setup_llm_logger(cfg: LoggingConfig, run_output_dir: Path | None) -> logging
     if run_output_dir is None:
         return None
 
-    logger = logging.getLogger("daily_feed.llm")
+    logger = logging.getLogger("daily_report.llm")
     logger.setLevel(_level_from_string(cfg.level))
     logger.handlers = []
     logger.propagate = False

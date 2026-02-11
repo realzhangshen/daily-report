@@ -1,5 +1,5 @@
 """
-Command-line interface for the Daily Feed Agent.
+Command-line interface for the Daily Report Agent.
 
 Uses Typer to provide a CLI with options for all major configuration
 settings. Supports loading .env files for API key configuration.
@@ -58,7 +58,7 @@ def run(
         help="Override provider API key (or set GOOGLE_API_KEY / .env).",
     ),
 ):
-    """Run the daily feed pipeline.
+    """Run the daily report pipeline.
 
     Processes a JSON RSS export file, fetches article content,
     generates AI summaries, groups by topic, and outputs an HTML report.

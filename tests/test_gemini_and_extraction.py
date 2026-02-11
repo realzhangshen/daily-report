@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from daily_feed.analyzers.entry_analyzer import EntryAnalyzer
-from daily_feed.config import AppConfig
-from daily_feed.core.types import Article, ExtractedArticle
-from daily_feed.llm.providers.gemini import _extract_text
+from daily_report.analyzers.entry_analyzer import EntryAnalyzer
+from daily_report.config import AppConfig
+from daily_report.core.types import Article, ExtractedArticle
+from daily_report.llm.providers.gemini import _extract_text
 
 
 class _DummyProvider:

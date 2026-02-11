@@ -1,6 +1,6 @@
 """Tests for the synthesis module and prompt builders."""
 
-from daily_feed.analyzers.synthesizer import parse_briefing_markdown
+from daily_report.analyzers.synthesizer import parse_briefing_markdown
 
 
 def test_parse_briefing_basic():
@@ -52,7 +52,7 @@ def test_parse_briefing_fallback_raw():
 
 def test_parse_quick_mentions_chinese_colon():
     """Test that Chinese colon is also handled."""
-    from daily_feed.analyzers.synthesizer import _parse_quick_mentions
+    from daily_report.analyzers.synthesizer import _parse_quick_mentions
     body = "- **测试**：这是描述\n- **另一个**: 英文冒号"
     mentions = _parse_quick_mentions(body)
     assert len(mentions) == 2
@@ -63,9 +63,9 @@ def test_parse_quick_mentions_chinese_colon():
 
 # --- Prompt builder tests ---
 
-from daily_feed.llm.prompts import build_extraction_prompt, build_synthesis_prompt
-from daily_feed.core.types import Article
-from daily_feed.config import SummaryConfig
+from daily_report.llm.prompts import build_extraction_prompt, build_synthesis_prompt
+from daily_report.core.types import Article
+from daily_report.config import SummaryConfig
 
 
 def test_build_extraction_prompt():

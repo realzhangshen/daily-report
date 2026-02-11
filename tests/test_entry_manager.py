@@ -5,8 +5,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from daily_feed.core.entry import EntryManager
-from daily_feed.core.types import AnalysisResult, Article
+from daily_report.core.entry import EntryManager
+from daily_report.core.types import AnalysisResult, Article
 
 
 def test_entry_folder_naming():
@@ -133,7 +133,7 @@ def test_get_llm_logger_creates_logger():
         logger = manager.get_llm_logger()
 
         assert logger is not None
-        assert logger.name == f"daily_feed.entry.{manager.folder.name}"
+        assert logger.name == f"daily_report.entry.{manager.folder.name}"
         assert logger.level == logging.INFO
         assert len(logger.handlers) == 1
         assert isinstance(logger.handlers[0], logging.FileHandler)

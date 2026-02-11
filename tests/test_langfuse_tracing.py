@@ -5,8 +5,8 @@ from __future__ import annotations
 import sys
 import types
 
-from daily_feed.config import LangfuseConfig
-from daily_feed.llm import tracing
+from daily_report.config import LangfuseConfig
+from daily_report.llm import tracing
 
 
 def test_setup_langfuse_uses_only_langfuse_base_url_env(monkeypatch):

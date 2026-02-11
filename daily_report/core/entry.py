@@ -15,9 +15,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from daily_feed.core.types import Article
-from daily_feed.core.types import AnalysisResult
-from daily_feed.utils.logging import JsonlFormatter
+from daily_report.core.types import Article
+from daily_report.core.types import AnalysisResult
+from daily_report.utils.logging import JsonlFormatter
 
 
 def slugify(text: str) -> str:
@@ -272,7 +272,7 @@ class EntryManager:
         if not self.folder.exists():
             return None
 
-        logger = logging.getLogger(f"daily_feed.entry.{self.folder.name}")
+        logger = logging.getLogger(f"daily_report.entry.{self.folder.name}")
         logger.handlers = []
         logger.propagate = False
         logger.setLevel(logging.INFO)
@@ -292,7 +292,7 @@ class EntryManager:
         if not self.folder.exists():
             return None
 
-        logger = logging.getLogger(f"daily_feed.entry.analysis.{self.folder.name}")
+        logger = logging.getLogger(f"daily_report.entry.analysis.{self.folder.name}")
         logger.handlers = []
         logger.propagate = False
         logger.setLevel(logging.INFO)

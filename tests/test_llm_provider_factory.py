@@ -2,10 +2,10 @@
 
 import pytest
 
-from daily_feed.config import LoggingConfig, ProviderConfig, SummaryConfig
-from daily_feed.llm.providers.factory import available_providers, create_provider
-from daily_feed.llm.providers.gemini import GeminiProvider
-from daily_feed.llm.providers.openai_compatible import OpenAICompatibleProvider
+from daily_report.config import LoggingConfig, ProviderConfig, SummaryConfig
+from daily_report.llm.providers.factory import available_providers, create_provider
+from daily_report.llm.providers.gemini import GeminiProvider
+from daily_report.llm.providers.openai_compatible import OpenAICompatibleProvider
 
 
 def test_available_providers_contains_expected_backends():

@@ -7,11 +7,11 @@ import logging
 import tempfile
 from pathlib import Path
 
-from daily_feed.config import AppConfig
-from daily_feed.core.entry import EntryManager
-from daily_feed.core.types import AnalysisResult, Article, ExtractionResult
-from daily_feed.fetch.fetcher import FetchResult
-from daily_feed import runner
+from daily_report.config import AppConfig
+from daily_report.core.entry import EntryManager
+from daily_report.core.types import AnalysisResult, Article, ExtractionResult
+from daily_report.fetch.fetcher import FetchResult
+from daily_report import runner
 
 
 def test_fetch_uses_cached_text_when_cache_enabled(monkeypatch):

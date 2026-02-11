@@ -19,7 +19,7 @@ from ..utils.logging import redact_text, truncate_text
 _TRACER = None
 _CFG: LangfuseConfig | None = None
 _TRACE_STACK: ContextVar[list[Any]] = ContextVar("langfuse_trace_stack", default=[])
-_LOG = logging.getLogger("daily_feed")
+_LOG = logging.getLogger("daily_report")
 
 
 def setup_langfuse(cfg: LangfuseConfig) -> None:

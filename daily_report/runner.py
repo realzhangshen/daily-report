@@ -208,7 +208,7 @@ def run_pipeline(
     setup_langfuse(cfg.langfuse)
 
     with start_span(
-        "daily_feed.run",
+        "daily_report.run",
         kind="chain",
         input_value={"input_path": str(input_path), "output_dir": str(run_output_dir)},
         attributes={"run_folder_mode": cfg.output.run_folder_mode},
@@ -234,7 +234,7 @@ def run_pipeline(
                 articles = dedup_articles(articles, cfg.dedup.title_similarity_threshold)
 
             with start_span(
-                "daily_feed.fetch_extract",
+                "daily_report.fetch_extract",
                 kind="chain",
                 input_value={"count": len(articles)},
             ):
@@ -247,7 +247,7 @@ def run_pipeline(
             provider = _build_provider(cfg, None)
             analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
             with start_span(
-                "daily_feed.extract_batch",
+                "daily_report.extract_batch",
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
@@ -300,7 +300,7 @@ def run_pipeline(
 
             fetch_task = progress.add_task("Fetch + Extract", total=len(articles))
             with start_span(
-                "daily_feed.fetch_extract",
+                "daily_report.fetch_extract",
                 kind="chain",
                 input_value={"count": len(articles)},
             ):
@@ -316,7 +316,7 @@ def run_pipeline(
 
             extract_task = progress.add_task("Extract", total=len(extracted))
             with start_span(
-                "daily_feed.extract_batch",
+                "daily_report.extract_batch",
                 kind="chain",
                 input_value={"count": len(extracted)},
             ):
@@ -368,7 +368,7 @@ def _fetch_and_extract(articles, articles_dir: Path, cfg: AppConfig):
     Returns:
         List of ExtractedArticle objects
     """
-    logger = logging.getLogger("daily_feed")
+    logger = logging.getLogger("daily_report")
     extracted, _stats = _fetch_articles(articles, articles_dir, cfg, logger)
     return extracted
 

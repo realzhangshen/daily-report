@@ -3,8 +3,8 @@
 import tempfile
 from pathlib import Path
 
-from daily_feed.core.entry import EntryManager
-from daily_feed.core.types import AnalysisResult, Article
+from daily_report.core.entry import EntryManager
+from daily_report.core.types import AnalysisResult, Article
 
 
 def test_full_pipeline_with_entry_manager():

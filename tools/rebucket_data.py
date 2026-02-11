@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from daily_feed.input.daily_rebucket import (
+from daily_report.input.daily_rebucket import (
     build_stats,
     deduplicate_articles,
     list_export_files,

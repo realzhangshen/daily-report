@@ -1,1 +1,1 @@
-"""Tests for daily_feed package."""
+"""Tests for daily_report package."""

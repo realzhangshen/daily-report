@@ -2,7 +2,7 @@
 
 from datetime import date, timezone
 
-from daily_feed.input.daily_rebucket import (
+from daily_report.input.daily_rebucket import (
     bucket_date_for_timestamp,
     deduplicate_articles,
     parse_iso8601,

@@ -236,7 +236,7 @@ def _window_bounds(
     return start.isoformat(), end.isoformat()
 
 
-def write_daily_feeds(
+def write_daily_reports(
     buckets: dict[date, list[dict[str, Any]]],
     output_dir: Path,
     source_files: list[str],

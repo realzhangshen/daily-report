@@ -1,4 +1,4 @@
-# Daily Feed Agent
+# Daily Report Agent
 
 Analyze daily RSS exports into a clean HTML report using a pluggable AI provider (Gemini by default).
 
@@ -15,9 +15,9 @@ uv pip install -e .
 cp .env.example .env
 # edit .env to add provider API key and CRAWL4AI_API_URL
 
-daily-feed --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
+daily-report --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
 # disable cache for a full fresh run
-daily-feed --input data/folo-export-2026-02-03.json --output out --config config.example.yaml --no-use-cache
+daily-report --input data/folo-export-2026-02-03.json --output out --config config.example.yaml --no-use-cache
 ```
 
 ## Rebucket Exports By Day (22:00 Cutoff)
@@ -175,7 +175,7 @@ export LANGFUSE_PUBLIC_KEY="pk_..."
 export LANGFUSE_SECRET_KEY="sk_..."
 export LANGFUSE_BASE_URL="https://langfuse.your-domain.com"
 # export LANGFUSE_ENVIRONMENT="local"
-# export LANGFUSE_RELEASE="daily-feed"
+# export LANGFUSE_RELEASE="daily-report"
 ```
 
 Enable in config:
