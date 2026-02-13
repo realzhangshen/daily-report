@@ -46,6 +46,7 @@ from .llm.tracing import set_span_output, setup_langfuse, start_span
 from .llm.providers import create_provider
 from .analyzers.entry_analyzer import EntryAnalyzer
 from .output.renderer import render_briefing, render_html, render_markdown
+from .output.index_sync import sync_report_to_web_index
 from .analyzers.synthesizer import Synthesizer
 
 
@@ -261,6 +262,7 @@ def run_pipeline(
             title = f"Daily Feed - {input_path.stem}"
             html_path = run_output_dir / "report.html"
             render_briefing(briefing, extractions, html_path, title)
+            _sync_web_report_index(html_path=html_path, title=title, input_path=input_path, logger=logger)
 
             log_event(
                 logger,
@@ -339,6 +341,7 @@ def run_pipeline(
             title = f"Daily Feed - {input_path.stem}"
             html_path = run_output_dir / "report.html"
             render_briefing(briefing, extractions, html_path, title)
+            _sync_web_report_index(html_path=html_path, title=title, input_path=input_path, logger=logger)
 
             progress.advance(stage_task, 1)
             log_event(
@@ -653,3 +656,35 @@ def _build_run_output_dir(output_dir: Path, input_path: Path, cfg: AppConfig) ->
             "Unsupported run_folder_mode. Use 'input', 'timestamp', or 'input_timestamp'."
         )
     return output_dir / run_dir_name
+
+
+def _sync_web_report_index(*, html_path: Path, title: str, input_path: Path, logger) -> None:
+    """Best-effort sync of generated report into web_dailyreport index."""
+    try:
+        index_path = sync_report_to_web_index(html_path=html_path, title=title, input_path=input_path)
+    except Exception as exc:  # noqa: BLE001
+        log_event(
+            logger,
+            "Web index sync failed",
+            event="web_index_sync_failed",
+            error=str(exc),
+            output=str(html_path),
+        )
+        return
+
+    if index_path is None:
+        log_event(
+            logger,
+            "Web index sync skipped",
+            event="web_index_sync_skipped",
+            output=str(html_path),
+        )
+        return
+
+    log_event(
+        logger,
+        "Web index synced",
+        event="web_index_synced",
+        index=str(index_path),
+        output=str(html_path),
+    )
