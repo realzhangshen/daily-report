@@ -45,7 +45,7 @@ from .input.json_parser import parse_folo_json
 from .llm.tracing import set_span_output, setup_langfuse, start_span
 from .llm.providers import create_provider
 from .analyzers.entry_analyzer import EntryAnalyzer
-from .output.renderer import render_briefing, render_html, render_markdown
+from .renderer import render_briefing, render_html, render_markdown
 from .output.index_sync import sync_report_to_web_index
 from .analyzers.synthesizer import Synthesizer
 
