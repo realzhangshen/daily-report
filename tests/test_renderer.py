@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from daily_report.core.types import Article, BriefingResult, ExtractionResult
-from daily_report.output.renderer import _format_briefing, render_markdown
+from daily_report.renderer import _format_briefing, render_markdown
 
 
 def _sample_extractions() -> list[ExtractionResult]:
