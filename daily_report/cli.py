@@ -3,6 +3,10 @@ Command-line interface for the Daily Report Agent.
 
 Uses Typer to provide a CLI with options for all major configuration
 settings. Supports loading .env files for API key configuration.
+
+Cross-repo role:
+- Input contract: consumes JSON exported by folo_exporter.
+- Output contract: writes report folder consumed by web_dailyreport.
 """
 
 from __future__ import annotations
@@ -83,7 +87,8 @@ def run(
     # Load base configuration
     cfg = load_config(str(config) if config else None)
 
-    # Override with CLI options
+    # CLI flags intentionally override config file values so automation
+    # scripts can inject per-run changes without mutating config.yaml.
     if api_key:
         cfg.provider.api_key = api_key
     if run_folder_mode:
@@ -99,11 +104,11 @@ def run(
     if use_cache is not None:
         cfg.cache.enabled = use_cache
 
-    # Run the pipeline
+    # Pipeline handles parse -> fetch -> extract -> synthesize -> render.
     output_path = run_pipeline(input, output, cfg, show_progress=progress, console=console)
     console.print(f"Report generated: {output_path}")
 
-    # Flush Langfuse traces before exit
+    # Flush pending tracing events before process exit to avoid lost spans.
     flush()
 
 

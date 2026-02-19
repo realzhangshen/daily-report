@@ -21,6 +21,7 @@ from ..tracing import record_span_error, set_span_output, start_span
 from .base import AnalysisProvider
 
 
+# Structured schema for stage: "decide whether deep fetch is necessary".
 _DEEP_FETCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
@@ -32,6 +33,7 @@ _DEEP_FETCH_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+# Structured schema for stage: "extract normalized metadata for one entry".
 _EXTRACTION_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
@@ -79,6 +81,7 @@ class GeminiProvider(AnalysisProvider):
         candidate_links: list[str],
         entry_logger: logging.Logger | None = None,
     ) -> dict[str, Any]:
+        # Keep this call deterministic-ish; downstream branch logic depends on it.
         prompt = build_deep_fetch_prompt(article, text, candidate_links, self.summary_cfg)
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -136,6 +139,7 @@ class GeminiProvider(AnalysisProvider):
                 )
                 return {"need_deep_fetch": False, "urls": [], "rationale": "parse_error"}
 
+        # Defensive normalization because provider output can drift in shape.
         need = bool(obj.get("need_deep_fetch"))
         urls = obj.get("urls") or []
         if not isinstance(urls, list):
@@ -152,6 +156,7 @@ class GeminiProvider(AnalysisProvider):
         decision: dict[str, Any],
         entry_logger: logging.Logger | None = None,
     ) -> str:
+        # Free-form analysis text used for human-readable article notes.
         prompt = build_analysis_prompt(article, base_text, deep_texts, decision, self.summary_cfg)
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -202,6 +207,8 @@ class GeminiProvider(AnalysisProvider):
         base_text: str,
         entry_logger: logging.Logger | None = None,
     ) -> dict[str, Any]:
+        # Structured extraction drives later synthesis and rendering, so this
+        # method aggressively retries with stricter decoding when JSON parse fails.
         prompt = build_extraction_prompt(article, base_text, self.summary_cfg)
         payload = self._build_extraction_payload(
             prompt=prompt,
@@ -254,6 +261,8 @@ class GeminiProvider(AnalysisProvider):
                     "error": "provider_error",
                 }
             except json.JSONDecodeError as exc:
+                # Retry with lower temperature + larger output budget to improve
+                # JSON validity on borderline responses.
                 retry_payload = self._build_extraction_payload(
                     prompt=prompt,
                     temperature=0.0,
@@ -320,6 +329,7 @@ class GeminiProvider(AnalysisProvider):
         extractions: list[dict[str, Any]],
         logger: logging.Logger | None = None,
     ) -> str:
+        # Synthesis creates final multi-section briefing markdown.
         prompt = build_synthesis_prompt(extractions, self.summary_cfg)
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -366,6 +376,8 @@ class GeminiProvider(AnalysisProvider):
                 return f"Provider error: {type(exc).__name__}"
 
     def _post(self, payload: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+        # HTTP client is short-lived by design; this keeps behavior explicit and
+        # avoids hidden global state between calls.
         url = f"{self.cfg.base_url}/v1beta/models/{self.cfg.model}:generateContent"
         params = {"key": self.api_key}
         with httpx.Client(timeout=timeout, trust_env=self.cfg.trust_env) as client:
@@ -379,6 +391,7 @@ class GeminiProvider(AnalysisProvider):
         temperature: float,
         max_output_tokens: int,
     ) -> dict[str, Any]:
+        # Centralize payload schema for easier retries/tuning.
         return {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -403,6 +416,7 @@ class GeminiProvider(AnalysisProvider):
             return
         detail = self.log_cfg.llm_log_detail
         redaction = self.log_cfg.llm_log_redaction
+        # Always redact potentially sensitive fields before log persistence.
         payload = {
             "event": event,
             "status": status,
@@ -421,6 +435,11 @@ class GeminiProvider(AnalysisProvider):
 
 
 def _extract_text(data: dict[str, Any]) -> str:
+    """Extract primary text from Gemini response payload.
+
+    Prefer non-thought parts when available to avoid leaking chain-of-thought-
+    style content into user-facing results and logs.
+    """
     try:
         parts = data["candidates"][0]["content"]["parts"]
     except Exception:  # noqa: BLE001
@@ -450,6 +469,7 @@ def _extract_text(data: dict[str, Any]) -> str:
 
 
 def _parse_json_response(content: str) -> dict[str, Any]:
+    """Parse JSON response with fallback snippet extraction."""
     if not content:
         raise json.JSONDecodeError("Empty content", content or "", 0)
     try:
@@ -460,6 +480,7 @@ def _parse_json_response(content: str) -> dict[str, Any]:
 
 
 def _extract_json_snippet(content: str) -> str:
+    """Extract likely JSON object from mixed text response."""
     fence = _extract_fenced_json(content)
     if fence:
         return fence
@@ -471,6 +492,7 @@ def _extract_json_snippet(content: str) -> str:
 
 
 def _extract_fenced_json(content: str) -> str | None:
+    """Return json code fence content if present."""
     lines = content.splitlines()
     start_idx = None
     for idx, line in enumerate(lines):

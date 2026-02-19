@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Rebucket raw exports into daily feeds using a configurable local cutoff."""
+"""Rebucket raw exports into daily feeds using a configurable local cutoff.
+
+This script is an offline pre-processing utility between:
+- folo_exporter JSON exports (possibly many files per day)
+- daily_report pipeline input (single feed file per logical day)
+"""
 
 from __future__ import annotations
 
@@ -89,6 +94,8 @@ def main() -> int:
     cutoff_hour, cutoff_minute = args.cutoff
     timestamp_fields: tuple[str, ...] = args.timestamp_fields
 
+    # `local` keeps behavior convenient for personal workflows while allowing
+    # explicit IANA timezone in automation for reproducibility.
     tz_name = None if args.timezone == "local" else args.timezone
     tz = resolve_timezone(tz_name)
 
@@ -97,8 +104,11 @@ def main() -> int:
         print(f"No JSON exports found in {input_dir}")
         return 1
 
+    # 1) Merge all exports
     source_articles, source_file_names = load_export_articles(files)
+    # 2) Deduplicate by entry identity/timestamps
     deduped_articles = deduplicate_articles(source_articles, timestamp_fields=timestamp_fields)
+    # 3) Rebucket into logical day windows by local cutoff.
     buckets, missing_timestamp = rebucket_articles(
         deduped_articles,
         tz=tz,
@@ -106,6 +116,7 @@ def main() -> int:
         cutoff_minute=cutoff_minute,
         timestamp_fields=timestamp_fields,
     )
+    # 4) Emit per-day feed JSON files.
     written_files = write_daily_feeds(
         buckets,
         output_dir=output_dir,
@@ -115,6 +126,7 @@ def main() -> int:
         cutoff_minute=cutoff_minute,
     )
 
+    # 5) Build machine-readable manifest for downstream scripts and auditing.
     stats = build_stats(
         source_files=source_file_names,
         source_articles=len(source_articles),
@@ -141,6 +153,7 @@ def main() -> int:
             {
                 "date": path.stem.removeprefix("feed-"),
                 "file": path.name,
+                # `bucket_counts` is keyed by YYYY-MM-DD.
                 "total": bucket_counts[path.stem.removeprefix("feed-")],
             }
             for path in written_files

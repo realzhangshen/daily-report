@@ -25,6 +25,8 @@ class Synthesizer:
         self.logger = logger
 
     def synthesize(self, extractions: list[ExtractionResult]) -> BriefingResult:
+        # Reduce rich extraction objects into a prompt-friendly payload.
+        # Keep key fields explicit so prompt templates remain stable.
         payloads = []
         for ext in extractions:
             payloads.append({
@@ -45,7 +47,14 @@ class Synthesizer:
 
 
 def parse_briefing_markdown(text: str) -> BriefingResult:
-    """Parse the LLM synthesis markdown into a BriefingResult."""
+    """Parse LLM markdown into BriefingResult sections.
+
+    Expected high-level markdown shape:
+    - ## 今日概要
+    - ## 重点报道
+    - ## 主题板块
+    - ## 速览
+    """
     result = BriefingResult(raw_text=text)
 
     sections = re.split(r'^## ', text, flags=re.MULTILINE)
@@ -58,6 +67,8 @@ def parse_briefing_markdown(text: str) -> BriefingResult:
         heading = lines[0].strip()
         body = lines[1].strip() if len(lines) > 1 else ""
 
+        # Use keyword matching instead of exact heading equality to remain
+        # tolerant of minor prompt/model heading variations.
         if '\u4eca\u65e5\u6982\u8981' in heading:
             result.executive_summary = body
         elif '\u91cd\u70b9\u62a5\u9053' in heading:
@@ -71,6 +82,7 @@ def parse_briefing_markdown(text: str) -> BriefingResult:
 
 
 def _parse_top_stories(body: str) -> list[dict[str, Any]]:
+    """Parse '### <title>' blocks into top story list."""
     stories = []
     parts = re.split(r'^### ', body, flags=re.MULTILINE)
     for part in parts:
@@ -84,6 +96,7 @@ def _parse_top_stories(body: str) -> list[dict[str, Any]]:
 
 
 def _parse_themed_sections(body: str) -> list[BriefingSection]:
+    """Parse themed section blocks from markdown."""
     sections = []
     parts = re.split(r'^### ', body, flags=re.MULTILINE)
     for part in parts:
@@ -97,6 +110,11 @@ def _parse_themed_sections(body: str) -> list[BriefingSection]:
 
 
 def _parse_quick_mentions(body: str) -> list[dict[str, Any]]:
+    """Parse bullet quick mentions.
+
+    Preferred line format:
+    - **标题**: 描述
+    """
     mentions = []
     for line in body.strip().split('\n'):
         line = line.strip()

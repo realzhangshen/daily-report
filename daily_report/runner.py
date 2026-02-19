@@ -11,6 +11,11 @@ This module coordinates the entire workflow:
 
 Supports both progress bar and quiet modes. Fetching is done exclusively
 through the remote Crawl4AI API service.
+
+Cross-repo contract notes:
+- Input file is expected to follow folo_exporter JSON schema.
+- Generated report folder is expected to be publishable into
+  web_dailyreport/reports/<date>/.
 """
 
 from __future__ import annotations
@@ -66,6 +71,8 @@ def _read_cached_extraction(entry: EntryManager, cfg: AppConfig) -> dict | None:
 
 
 def _build_cached_extraction(item: ExtractedArticle, cached: dict) -> ExtractionResult:
+    # Rehydrate ExtractionResult from cache while keeping unknown keys in meta.
+    # This preserves backward/forward compatibility when extraction schema grows.
     return ExtractionResult(
         article=item.article,
         one_line_summary=cached.get("one_line_summary", item.article.title),
@@ -100,6 +107,7 @@ def _extract_entries(
             progress.advance(extract_task, 1)
 
     if concurrency == 1:
+        # Sequential path is easier to debug and deterministic for local runs.
         results: list[ExtractionResult] = []
         for item in extracted:
             entry = EntryManager(articles_dir, item.article)
@@ -124,12 +132,14 @@ def _extract_entries(
                 log_event(logger, "Extraction cache hit", event="extraction_cache_hit", url=item.article.url)
                 _advance_progress()
                 continue
+            # Copy current context (including tracing ids) into worker thread.
             ctx = copy_context()
             future = executor.submit(ctx.run, analyzer.extract, item)
             future_map[future] = idx
 
         for future in as_completed(future_map):
             idx = future_map[future]
+            # Put result back to original index to keep output ordering stable.
             results_list[idx] = future.result()
             _advance_progress()
 
@@ -200,12 +210,14 @@ def run_pipeline(
     Returns:
         Path to the generated HTML report file
     """
+    # Build deterministic run directory first so all subsequent artifacts
+    # (report + per-article cache + logs) live under one folder.
     run_output_dir = _build_run_output_dir(output_dir, input_path, cfg)
     run_output_dir.mkdir(parents=True, exist_ok=True)
     articles_dir = run_output_dir / "articles"
     articles_dir.mkdir(parents=True, exist_ok=True)
     logger = setup_logging(cfg.logging, run_output_dir)
-    # llm_logger will be set up per-entry later
+    # llm_logger is configured at entry level to keep per-article traces separate.
     setup_langfuse(cfg.langfuse)
 
     with start_span(
@@ -223,7 +235,8 @@ def run_pipeline(
             articles_dir=str(articles_dir),
         )
 
-        # Process without progress bar (quiet mode)
+        # Quiet mode is preferred in automation logs where progress bars
+        # generate noisy output.
         if not show_progress:
             # Load JSON input file
             with open(input_path, encoding="utf-8") as f:
@@ -244,7 +257,7 @@ def run_pipeline(
                 )
             _render_fetch_stats(stats, console or Console())
 
-            # Stage 4: Extract (Pass 1)
+            # Stage 4: Extract (Pass 1) - structured per-entry metadata.
             provider = _build_provider(cfg, None)
             analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
             with start_span(
@@ -254,11 +267,11 @@ def run_pipeline(
             ):
                 extractions = _extract_entries(extracted, articles_dir, cfg, analyzer, logger)
 
-            # Stage 5: Synthesize (Pass 2)
+            # Stage 5: Synthesize (Pass 2) - aggregate daily briefing.
             synthesizer = Synthesizer(cfg, provider, logger)
             briefing = synthesizer.synthesize(extractions)
 
-            # Stage 6: Render
+            # Stage 6: Render outputs and sync web index best-effort.
             title = f"Daily Feed - {input_path.stem}"
             html_path = run_output_dir / "report.html"
             render_briefing(briefing, extractions, html_path, title)
@@ -287,6 +300,7 @@ def run_pipeline(
         )
 
         with progress:
+            # Keep stage counter aligned with the conceptual six pipeline phases.
             stage_task = progress.add_task("Stages", total=6)
 
             # Load JSON input file
@@ -312,7 +326,7 @@ def run_pipeline(
             _render_fetch_stats(stats, console)
             progress.advance(stage_task, 1)
 
-            # Stage 4: Extract (Pass 1)
+            # Stage 4: Extract (Pass 1) - run entry analyzer.
             provider = _build_provider(cfg, None)
             analyzer = EntryAnalyzer(cfg, provider, articles_dir, logger)
 
@@ -333,11 +347,11 @@ def run_pipeline(
                 )
             progress.advance(stage_task, 1)
 
-            # Stage 5: Synthesize (Pass 2)
+            # Stage 5: Synthesize (Pass 2) - build final briefing.
             synthesizer = Synthesizer(cfg, provider, logger)
             briefing = synthesizer.synthesize(extractions)
 
-            # Stage 6: Render
+            # Stage 6: Render to report.html and optionally sync index.
             title = f"Daily Feed - {input_path.stem}"
             html_path = run_output_dir / "report.html"
             render_briefing(briefing, extractions, html_path, title)
@@ -429,6 +443,7 @@ def _fetch_and_extract_api(
     Returns:
         List of ExtractedArticle objects
     """
+    # Keep async implementation isolated while exposing sync API to callers.
     return asyncio.run(
         _fetch_and_extract_api_async(
             articles, articles_dir, cfg, stats, logger, progress, fetch_task
@@ -470,6 +485,7 @@ async def _fetch_and_extract_api_async(
 
     api_auth = get_crawl4ai_api_auth(cfg.fetch)
 
+    # Rich progress updates are not thread-safe; serialize advances.
     progress_lock = asyncio.Lock()
 
     async def _advance_progress() -> None:
@@ -520,6 +536,7 @@ async def _fetch_and_extract_api_async(
             auth=api_auth,
         )
 
+        # result.text is already extracted text/markdown from Crawl4AI API.
         text = result.text
         if text and _is_placeholder_text(text):
             text = None
@@ -531,7 +548,8 @@ async def _fetch_and_extract_api_async(
             await _advance_progress()
             return ExtractedArticle(article=article, text=text, error=None)
 
-        # Distinguish between fetch failures (network error) and extraction failures (empty result)
+        # Distinguish between transport failures and empty extraction outcomes;
+        # this split is important for operational dashboards and retries.
         if result.error:
             # Network/protocol error during fetch
             error_category = _categorize_error(result.error, result.status_code)
@@ -571,6 +589,7 @@ async def _fetch_and_extract_api_async(
         await _advance_progress()
         return ExtractedArticle(article=article, text=None, error=result.error)
 
+    # gather() preserves input order, which keeps downstream article ordering stable.
     tasks = [asyncio.create_task(_fetch_single(article)) for article in articles]
     return await asyncio.gather(*tasks)
 
@@ -644,11 +663,14 @@ def _build_run_output_dir(output_dir: Path, input_path: Path, cfg: AppConfig) ->
     stem = input_path.stem or "run"
     mode = (cfg.output.run_folder_mode or "input").lower()
     if mode == "input":
+        # Stable folder name preferred by publish automation scripts.
         run_dir_name = stem
     elif mode == "timestamp":
+        # Timestamp prefix helps with repeated runs for same input.
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         run_dir_name = f"{timestamp}-{stem}"
     elif mode == "input_timestamp":
+        # Input-first naming keeps source grouping while still unique.
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         run_dir_name = f"{stem}-{timestamp}"
     else:
@@ -661,6 +683,7 @@ def _build_run_output_dir(output_dir: Path, input_path: Path, cfg: AppConfig) ->
 def _sync_web_report_index(*, html_path: Path, title: str, input_path: Path, logger) -> None:
     """Best-effort sync of generated report into web_dailyreport index."""
     try:
+        # Non-fatal helper: pipeline success should not depend on web repo layout.
         index_path = sync_report_to_web_index(html_path=html_path, title=title, input_path=input_path)
     except Exception as exc:  # noqa: BLE001
         log_event(
