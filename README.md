@@ -20,6 +20,14 @@ daily-report --input data/folo-export-2026-02-03.json --output out --config conf
 daily-report --input data/folo-export-2026-02-03.json --output out --config config.example.yaml --no-use-cache
 ```
 
+If you want `daily_report` to best-effort update `web_dailyreport/data/reports.json`
+after rendering, set `WEB_DAILYREPORT_ROOT` to your web repo path:
+
+```bash
+export WEB_DAILYREPORT_ROOT=/absolute/path/to/web_dailyreport
+daily-report --input data/folo-export-2026-02-03.json --output out --config config.example.yaml
+```
+
 ## Rebucket Exports By Day (22:00 Cutoff)
 
 When you have multiple raw exports under `data/`, you can merge/deduplicate

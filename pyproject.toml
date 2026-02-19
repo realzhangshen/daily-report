@@ -27,8 +27,10 @@ requires = ["setuptools>=68.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["daily_report"]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["daily_report*"]
 
 [tool.setuptools.package-data]
 daily_report = ["output/templates/*.html", "prompts/*.md"]

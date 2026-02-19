@@ -1,52 +1,83 @@
 from pathlib import Path
 
-from daily_report.core.types import Article, BriefingResult, ExtractionResult
-from daily_report.renderer import _format_briefing, render_markdown
+from daily_report.core.types import (
+    AnalysisResult,
+    Article,
+    BriefingResult,
+    BriefingSection,
+    ExtractionResult,
+)
+from daily_report.output.renderer import render_briefing, render_markdown
 
 
-def _sample_extractions() -> list[ExtractionResult]:
-    article = Article(title="t", site="s", url="https://example.com")
-    return [ExtractionResult(article=article)]
+def _sample_article(*, title: str, site: str = "Example Site", url: str = "https://example.com") -> Article:
+    return Article(title=title, site=site, url=url)
 
 
-def test_format_briefing_paragraphs_and_lists():
-    briefing = "第一段第一行\n第一段第二行\n\n- 条目A\n- 条目B\n\n第二段"
-    rendered = _format_briefing(briefing)
-
-    assert "<p>第一段第一行<br>第一段第二行</p>" in rendered
-    assert "<ul><li>条目A</li><li>条目B</li></ul>" in rendered
-    assert "<p>第二段</p>" in rendered
-
-
-def test_format_briefing_inline_markdown_and_escape():
-    briefing = "**加粗** *斜体* `code` [链接](https://example.com) <script>"
-    rendered = _format_briefing(briefing)
-
-    assert "<strong>加粗</strong>" in rendered
-    assert "<em>斜体</em>" in rendered
-    assert "<code>code</code>" in rendered
-    assert 'href="https://example.com"' in rendered
-    assert "&lt;script&gt;" in rendered
-
-
-def test_format_briefing_accepts_briefing_result():
-    result = BriefingResult(raw_text="## 小结\n内容段落")
-    rendered = _format_briefing(result)
-
-    assert "<h3>小结</h3>" in rendered
-    assert "<p>内容段落</p>" in rendered
-
-
-def test_render_markdown_uses_briefing_text_instead_of_repr(tmp_path: Path):
+def test_render_markdown_outputs_grouped_sections(tmp_path: Path) -> None:
     output_path = tmp_path / "report.md"
-    briefing = BriefingResult(raw_text="今日概览\n- A")
-    render_markdown(
-        briefing=briefing,
-        extractions=_sample_extractions(),
-        output_path=output_path,
-        title="Title",
+    results = [
+        AnalysisResult(
+            article=_sample_article(title="A1", site="Tech"),
+            analysis="分析A1",
+        ),
+        AnalysisResult(
+            article=_sample_article(title="A2", site="Tech"),
+            analysis="分析A2",
+        ),
+        AnalysisResult(
+            article=_sample_article(title="B1", site="News"),
+            analysis="分析B1",
+        ),
+    ]
+
+    render_markdown(results=results, output_path=output_path, title="日报标题")
+    text = output_path.read_text(encoding="utf-8")
+
+    assert "# 日报标题" in text
+    assert "## Tech" in text
+    assert "## News" in text
+    assert "### A1" in text
+    assert "### B1" in text
+    assert "分析A2" in text
+
+
+def test_render_briefing_links_top_story_and_escapes_html(tmp_path: Path) -> None:
+    output_path = tmp_path / "briefing.html"
+    article = _sample_article(title="故事A", url="https://example.com/story-a")
+    extractions = [ExtractionResult(article=article)]
+    briefing = BriefingResult(
+        executive_summary="总结<script>alert(1)</script>",
+        top_stories=[{"title": "故事A", "analysis": "重点分析"}],
+        sections=[BriefingSection(theme="趋势", description="描述内容")],
+        quick_mentions=[{"title": "速览A", "description": "描述A"}],
     )
 
-    text = output_path.read_text(encoding="utf-8")
-    assert "BriefingResult(" not in text
-    assert "今日概览" in text
+    render_briefing(
+        briefing=briefing,
+        extractions=extractions,
+        output_path=output_path,
+        title="日报",
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    assert '<a href="https://example.com/story-a"' in html
+    assert "重点分析" in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<h2>趋势</h2>" in html
+    assert "速览A" in html
+
+
+def test_render_briefing_fallback_uses_raw_text(tmp_path: Path) -> None:
+    output_path = tmp_path / "briefing-fallback.html"
+    briefing = BriefingResult(raw_text="回退文本内容")
+
+    render_briefing(
+        briefing=briefing,
+        extractions=[],
+        output_path=output_path,
+        title="日报",
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    assert "回退文本内容" in html

@@ -227,7 +227,7 @@ DEFAULT_CONFIG = AppConfig()
 def load_config(path: str | None) -> AppConfig:
     """Load configuration from a YAML file with defaults."""
     if not path:
-        return DEFAULT_CONFIG
+        return _fromdict(_asdict(DEFAULT_CONFIG))
 
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
